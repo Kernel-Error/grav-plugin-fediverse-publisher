@@ -13,6 +13,9 @@ keywords: activitypub, fediverse, mastodon, federation, webfinger, nodeinfo
 bugs: https://github.com/Kernel-Error/grav-plugin-fediverse-publisher/issues
 license: MIT
 
+compatibility:
+  grav: ['1.7', '2.0']
+
 dependencies:
   - { name: grav, version: '>=1.7.51' }
   - { name: php,  version: '>=8.1' }
