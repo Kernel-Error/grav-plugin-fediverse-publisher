@@ -6,6 +6,35 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed (v0.0.6 — local E2E smoke catch)
+
+Found during the v0.0.5 pre-production end-to-end run against
+GoToSocial, NOT in production for once. The full Follow → Accept →
+post-create → broadcast cycle ran clean over the wire (200s
+everywhere), but the test post never appeared in the GTS timeline
+even though the inbound POST was accepted with 202. GTS's worker log
+told us why:
+
+```
+status https://blog.local/blog/v005-e2e
+  'updated' predates 'published'
+```
+
+`ActivityTransformer` emitted the AS 2.0 object with `published`
+set from Grav's `$page->date()` (the operator-set frontmatter date)
+and `updated` from `$page->modified()` (the file mtime). For posts
+where the operator back-dates or future-dates the frontmatter,
+mtime sits earlier than the published date, so the activity went
+out with `updated < published` — well-formed for the dumb peers,
+silently rejected by the strict ones. GTS, Mastodon, and Pleroma
+all enforce the spec rule here.
+
+- **`ActivityTransformer::transformObject()` clamps `updated`** to
+  be at least `published`. The normal case (edited post, mtime
+  later than published) is unaffected; back-dated and future-dated
+  posts now produce a coherent activity. Two new unit tests pin
+  both branches.
+
 ### Fixed (v0.0.5 — fourth production-deploy bug-fix)
 
 The v0.0.4 diagnostics-first push paid off: the new response-body

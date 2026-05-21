@@ -225,6 +225,44 @@ final class ActivityTransformerTest extends TestCase
         self::assertSame('https://cdn.example/extra.png', $object['attachment'][1]['url']);
     }
 
+    public function testUpdatedNeverPredatesPublished(): void
+    {
+        // GTS rejects activities where `updated < published`; the
+        // local E2E surfaced this when Grav's file mtime sat earlier
+        // than the `date:` frontmatter (back-/future-dated posts).
+        // The transformer clamps `updated` to at least `published`.
+        $page = new PageRecord(
+            route:       '/blog/back-dated',
+            url:         'https://blog.local/blog/back-dated',
+            title:       'Back-dated',
+            contentHtml: '<p>hi</p>',
+            published:   new DateTimeImmutable('2026-05-21T15:00:00Z'),
+            modified:    new DateTimeImmutable('2026-05-21T14:46:00Z'),
+        );
+        $object = $this->transformer()->transformObject($page, false);
+
+        self::assertSame('2026-05-21T15:00:00Z', $object['published']);
+        self::assertSame('2026-05-21T15:00:00Z', $object['updated']);
+    }
+
+    public function testUpdatedKeptWhenLaterThanPublished(): void
+    {
+        // The normal case — operator edits a published post — must
+        // not be clobbered by the clamp.
+        $page = new PageRecord(
+            route:       '/blog/edited',
+            url:         'https://blog.local/blog/edited',
+            title:       'Edited',
+            contentHtml: '<p>hi</p>',
+            published:   new DateTimeImmutable('2026-05-01T10:00:00Z'),
+            modified:    new DateTimeImmutable('2026-05-15T12:34:00Z'),
+        );
+        $object = $this->transformer()->transformObject($page, false);
+
+        self::assertSame('2026-05-01T10:00:00Z', $object['published']);
+        self::assertSame('2026-05-15T12:34:00Z', $object['updated']);
+    }
+
     public function testMediaImageUrlsRespectRootRelativeRewrite(): void
     {
         $page = new PageRecord(

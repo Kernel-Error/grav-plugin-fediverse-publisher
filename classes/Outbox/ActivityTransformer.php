@@ -33,6 +33,20 @@ final class ActivityTransformer
     {
         $type = $asArticle ? 'Article' : 'Note';
 
+        // AS 2.0 / ActivityPub: `updated` MUST NOT predate `published`.
+        // Grav's `$page->modified()` is the file mtime, which can sit
+        // earlier than the `date:` frontmatter when the operator
+        // back-dates or future-dates a post (writes the file first,
+        // then sets a date that doesn't match mtime). GTS rejects
+        // `'updated' predates 'published'` with a 500 from the
+        // processing worker even though it 202s the inbound delivery —
+        // the post then silently doesn't appear on the timeline.
+        // Clamp `updated` to be at least `published` so the activity
+        // is always well-formed regardless of the operator's date
+        // discipline.
+        $publishedAt = $page->published;
+        $updatedAt   = $page->modified < $publishedAt ? $publishedAt : $page->modified;
+
         $object = [
             '@context'     => 'https://www.w3.org/ns/activitystreams',
             'id'           => $page->url,
@@ -40,8 +54,8 @@ final class ActivityTransformer
             'attributedTo' => $this->actorUrl,
             'to'           => ['https://www.w3.org/ns/activitystreams#Public'],
             'cc'           => [$this->followersUrl],
-            'published'    => $page->published->format('Y-m-d\TH:i:s\Z'),
-            'updated'      => $page->modified->format('Y-m-d\TH:i:s\Z'),
+            'published'    => $publishedAt->format('Y-m-d\TH:i:s\Z'),
+            'updated'      => $updatedAt->format('Y-m-d\TH:i:s\Z'),
             'url'          => $page->url,
             'content'      => $page->contentHtml,
         ];

@@ -62,7 +62,7 @@ class FediversePublisherPlugin extends Plugin
      * Plugin version reported in NodeInfo `software.version`. Bumped
      * in lockstep with the version field in blueprints.yaml.
      */
-    private const SOFTWARE_VERSION = '0.0.5';
+    private const SOFTWARE_VERSION = '0.0.6';
     private const SOFTWARE_NAME    = 'grav-fediverse-publisher';
     private const HOST_PLATFORM    = 'grav';
 
