@@ -17,6 +17,12 @@ blog:
   note_threshold: 1000
 
 federation:
+  # Canonical public https URL of this site. Must be set explicitly
+  # — the CLI scheduler context can't derive a usable host from the
+  # request URI, so without this every outbound keyId would point
+  # at `http://localhost` and Mastodon (rightly) refuses with 401.
+  # No trailing slash. Example: https://www.example.com
+  canonical_host: ''
   public_only: true
   # Dev-only: CIDR ranges that override the SSRF-reserved-IP block in
   # the actor-key fetcher. Production keeps this empty — the whole

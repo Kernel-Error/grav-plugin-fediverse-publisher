@@ -58,4 +58,65 @@ final class PreflightCheckTest extends TestCase
         self::assertFalse($check->isHealthy());
         self::assertCount(2, $check->getErrors());
     }
+
+    public function testHostBaseCheckSkippedWhenNotProvided(): void
+    {
+        // Backwards-compat: existing callers that pre-date the
+        // hostBase check still construct PreflightCheck with two
+        // args. Treat missing hostBase as "not checked", not failure.
+        $check = new PreflightCheck(hasPdoSqlite: true, baseUrlPath: '');
+
+        self::assertTrue($check->isHealthy());
+    }
+
+    public function testPublishableHostBasePasses(): void
+    {
+        $check = new PreflightCheck(
+            hasPdoSqlite:     true,
+            baseUrlPath:      '',
+            resolvedHostBase: 'https://blog.example.com',
+        );
+
+        self::assertTrue($check->isHealthy());
+    }
+
+    public function testLocalhostHostBaseRejected(): void
+    {
+        // The v0.0.4 production bug: CLI scheduler falls back to
+        // http://localhost as the canonical host. Preflight must
+        // refuse to run rather than emit a keyId that Mastodon
+        // would reject as a private-network reference.
+        $check = new PreflightCheck(
+            hasPdoSqlite:     true,
+            baseUrlPath:      '',
+            resolvedHostBase: 'http://localhost',
+        );
+
+        self::assertFalse($check->isHealthy());
+        self::assertStringContainsString('canonical_host', $check->getErrors()[0]);
+        self::assertStringContainsString('localhost', $check->getErrors()[0]);
+    }
+
+    public function testHttpOnlyHostBaseRejected(): void
+    {
+        $check = new PreflightCheck(
+            hasPdoSqlite:     true,
+            baseUrlPath:      '',
+            resolvedHostBase: 'http://blog.example.com',
+        );
+
+        self::assertFalse($check->isHealthy());
+        self::assertStringContainsString('canonical_host', $check->getErrors()[0]);
+    }
+
+    public function testPrivateIpLiteralRejected(): void
+    {
+        $check = new PreflightCheck(
+            hasPdoSqlite:     true,
+            baseUrlPath:      '',
+            resolvedHostBase: 'https://10.0.0.5',
+        );
+
+        self::assertFalse($check->isHealthy());
+    }
 }

@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace Grav\Plugin\FediversePublisher\Preflight;
 
+use Grav\Plugin\FediversePublisher\Config\HostBaseResolver;
+
 /**
  * Activation pre-flight: refuse to run if the environment cannot host an
- * ActivityPub plugin correctly. The two non-negotiable conditions are
- * documented in ADR-001 A-2 (pdo_sqlite must exist) and ADR-004 A-4
+ * ActivityPub plugin correctly. The non-negotiable conditions are
+ * documented in ADR-001 A-2 (pdo_sqlite must exist), ADR-004 A-4
  * (Grav must be served at the document root; subdirectory installs
- * break spec-correct WebFinger).
+ * break spec-correct WebFinger), and v0.0.5's hostBase rule (must be
+ * publicly resolvable https — see HostBaseResolver).
  *
  * The check is intentionally framework-agnostic: it takes the runtime
  * data it needs as constructor arguments. The plugin entry class is
@@ -25,6 +28,7 @@ final class PreflightCheck
     public function __construct(
         private readonly bool $hasPdoSqlite,
         private readonly string $baseUrlPath,
+        private readonly string $resolvedHostBase = '',
     ) {
         $this->run();
     }
@@ -46,6 +50,29 @@ final class PreflightCheck
     {
         $this->checkPdoSqlite();
         $this->checkDocumentRoot();
+        $this->checkHostBase();
+    }
+
+    private function checkHostBase(): void
+    {
+        if ($this->resolvedHostBase === '') {
+            // Legacy callers (older tests, scaffolding) construct
+            // PreflightCheck without passing a hostBase. Treat as
+            // "not checked" rather than rejecting — those callers
+            // don't drive federation anyway.
+            return;
+        }
+        if (HostBaseResolver::isPublishable($this->resolvedHostBase)) {
+            return;
+        }
+        $this->errors[] = \sprintf(
+            "Resolved canonical hostBase '%s' is not usable for federation. "
+            . 'Set `federation.canonical_host` to your public https URL '
+            . '(e.g. https://www.example.com) in Admin → Plugins → '
+            . 'Fediverse Publisher or in user/config/plugins/'
+            . 'fediverse-publisher.yaml. Plugin disabled until set.',
+            $this->resolvedHostBase
+        );
     }
 
     private function checkPdoSqlite(): void

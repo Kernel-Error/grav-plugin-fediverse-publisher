@@ -156,6 +156,7 @@ canonical config file is
 | `actor.image_url` | (empty) | Absolute URL to a header image. |
 | `blog.path_filter` | `/blog/**` | Which Grav pages become outbox entries (glob). |
 | `blog.note_threshold` | `1000` | Characters above which a post is an `Article`, below it's a `Note`. |
+| **`federation.canonical_host`** | (empty) | **Required.** Public https origin URL of the site, no trailing slash, no path, no port — e.g. `https://www.example.com`. Used in actor URL, keyId, inbox/outbox URLs. Must be set explicitly: Grav's CLI scheduler context can't derive this from the request URI, and Fediverse peers reject keyIds that resolve to `localhost`. The plugin's preflight refuses to enable the plugin until this is set to a publishable value. |
 | `federation.public_only` | `true` | Only push pages with public visibility. |
 | `federation.dev_allow_cidrs` | `[]` | **Dev only.** CIDR allow-list overriding the SSRF reserved-IP block. Keep empty in production. |
 
@@ -223,6 +224,26 @@ release). See that directory's `README.md` for the runbook.
   isn't reachable from the host (e.g. firewalled). The Grav log
   carries one rate-limited entry per remote actor per minute with
   the specific reason.
+- **The Grav log shows `push non-2xx — peer rejected delivery`
+  with `keyId=http://localhost/...`** — `federation.canonical_host`
+  isn't set, or Grav's compiled-config cache hasn't picked up the
+  change yet. Set the field via the Admin UI (which invalidates
+  both web + CLI config caches) or run `bin/grav clearcache --all`
+  AND restart PHP-FPM after a yaml-only edit. See the next
+  troubleshooting entry — this is the same cache-invalidation
+  pattern.
+- **Enabling/disabling the plugin via yaml-edit doesn't take
+  effect** — Grav keeps two separate compiled-config caches per
+  install (`cache/compiled/config/filelist-config-<host>.php` for
+  web requests, `filelist-config-cli.php` for CLI). Each is only
+  invalidated on the next access by that specific SAPI. Editing
+  yaml + `clearcache --all` flushes them on disk, but under
+  PHP-FPM the previous compiled state may still be live in
+  OPcache memory until FPM is restarted. The robust path is:
+  toggle in the Admin UI (the admin save explicitly invalidates
+  the relevant caches) rather than via yaml. If you must use yaml:
+  `bin/grav clearcache --all` followed by an FPM restart (not
+  reload).
 
 ## License
 

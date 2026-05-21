@@ -6,6 +6,99 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed (v0.0.5 — fourth production-deploy bug-fix)
+
+The v0.0.4 diagnostics-first push paid off: the new response-body
+logging surfaced Mastodon's actual rejection reason for the
+outbound 401 within seconds — `"Requests to private network
+addresses are disallowed (tried to query Mastodon::PrivateNetwork
+AddressError on http://localhost/activitypub/actor#main-key)"`.
+That's two separate bugs in one diagnostic line, plus a third that
+turned up while reproducing the first one locally.
+
+- **psr/log v1 ↔ v3 autoload-prepend conflict.** Under Grav 2.0 RC
+  the plugin's `vendor/autoload.php` registered with
+  `prepend=true`, putting the plugin's pinned psr/log v1.x in
+  front of Grav's bundled v3 for any class both define. The
+  shutdown handler's Whoops integration triggered
+  `Psr\Log\AbstractLogger` autoload, our v1 implementation got
+  served against the v3 `LoggerInterface` already in memory, and
+  PHP fatal'd on the signature mismatch. Symptoms varied by SAPI
+  — web 500 site-wide on Grav 2.0, CLI scheduler tick fatal on
+  both 1.7 and 2.0. Fix: `autoload()` now re-registers the loader
+  with `prepend=false` so the host Grav vendor wins for shared
+  classes. Belt-and-braces also scrubs every `new NullLogger()`
+  from production code: `RequestSigner`'s default became
+  `?LoggerInterface = null` with nullsafe call sites, and
+  `FlushQueueCommand` resolves Grav's real logger instead of a
+  NullLogger sentinel. Documented as outstanding architectural
+  debt: vendor-prefixing (php-scoper / Strauss) would make this
+  class of conflict structurally impossible, not just observably
+  rare.
+- **Outbound `keyId` resolved to `http://localhost` under CLI.**
+  `resolveHostBase()` derived its return value from
+  `$grav['uri']->rootUrl(true)` with a `$_SERVER['HTTP_HOST']`
+  fallback. In CLI context (cron-driven scheduler tick, manual
+  `bin/plugin fediverse-publisher flush-queue`) both are
+  empty/localhost, so every signed `Accept` and `Create` went out
+  with a `keyId` pointing at a private-network address. Mastodon
+  refused with 401, GoToSocial with 500 (same root cause, peer's
+  SSRF protection). Fix: introduce a mandatory
+  `federation.canonical_host` config field (admin form + yaml),
+  defaulting to empty so the operator must set it explicitly.
+  The new `HostBaseResolver` class is pure-PHP — every input
+  passed in as an argument — so the matrix of (web, CLI,
+  cron-without-Grav-uri) is unit-testable without booting Grav.
+  `PreflightCheck` extended: refuses to enable the plugin when
+  the resolved hostBase isn't publishable (loopback, RFC 1918,
+  private IPv6, raw Unicode host, http-only, port set, or path
+  segment all rejected with a clear error message).
+- **`$clock` named-parameter drift in `FlushQueueCommand`.** The
+  release-polish round dropped the `Clock` constructor parameter
+  from `Dispatcher` but `FlushQueueCommand` still passed
+  `clock: $clock`, plus the obsolete `allowedReservedCidrs:`.
+  Fatal on every CLI tick that had work to drain. Fixed by
+  bringing the FlushQueueCommand constructor call into sync with
+  the current `Dispatcher::__construct` signature.
+
+### Changed (v0.0.5)
+
+- **`federation.canonical_host` is now a required config field.**
+  Admin blueprint marks it `required: true` with a regex
+  validator (`^https://[a-z0-9.\-]+/?$`). Operators must set the
+  public https origin URL of the site — origin only, no path,
+  no port. v0.0.4 yaml files need this field added before the
+  plugin will run; the preflight error message points at exactly
+  this fix.
+- **Local dev stack gains a second Grav container.** Same
+  bind-mounted plugin source, but `fpub-grav-17` runs Grav 1.7.52
+  on PHP 8.3 (matching the `beratung-rheinbach.de` production
+  jail exactly) alongside the existing Grav 2.0 RC container.
+  v0.0.5's psr/log fix is verified against both Gravs locally;
+  pre-v0.0.5 we shipped Grav-2.0-only smokes and the entire
+  Grav-1.7-vs-Grav-2.0 conflict class ended up surfacing in
+  production. See `dev/README.md` for the dual-stack layout.
+
+### Added (v0.0.5)
+
+- `classes/Config/HostBaseResolver.php` — pure PHP class that
+  produces a deterministic canonical hostBase. Tested with a
+  full matrix of inputs: configured canonical wins, falls back
+  through Grav's rootUrl then `$_SERVER`, ends at
+  `http://localhost` (caught by preflight, not by the resolver).
+  `isPublishable()` is the gate: rejects http, loopback, IPv4
+  privates, IPv6 link-local / ULA / loopback, raw Unicode hosts
+  (operator must publish A-labels), port literals, path
+  segments, query strings, fragments. 22 new unit tests on this
+  one class alone.
+- Tightened admin validation on `federation.canonical_host` to
+  match the resolver's contract: regex is now origin-only,
+  required, with the placeholder example operator-friendly.
+- The plugin's `autoload()` method now documents the
+  prepend-vs-append decision inline so the next maintainer
+  doesn't reflexively "fix" it back to prepend on the theory
+  that the plugin should win class-loading.
+
 ### Fixed (v0.0.4 — third production-deploy bug-fix)
 
 v0.0.3 closed the SQL crash and got real Mastodon Follow activities

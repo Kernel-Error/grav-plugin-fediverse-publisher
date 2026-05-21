@@ -25,6 +25,7 @@ use Grav\Plugin\FediversePublisher\Outbox\ActivityTransformer;
 use Grav\Plugin\FediversePublisher\Outbox\GravPageSource;
 use Grav\Plugin\FediversePublisher\Outbox\OutboxBroadcaster;
 use Grav\Plugin\FediversePublisher\Outbox\PageRecord;
+use Grav\Plugin\FediversePublisher\Config\HostBaseResolver;
 use Grav\Plugin\FediversePublisher\Preflight\PreflightCheck;
 use Grav\Plugin\FediversePublisher\Push\Dispatcher;
 use Grav\Plugin\FediversePublisher\Push\FailureClassifier;
@@ -48,7 +49,6 @@ use GuzzleHttp\Client as GuzzleClient;
 use Monolog\Handler\StreamHandler;
 use Monolog\Logger as MonologLogger;
 use Psr\Log\LoggerInterface;
-use Psr\Log\NullLogger;
 use Nyholm\Psr7Server\ServerRequestCreator;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Http\Message\ServerRequestInterface;
@@ -62,7 +62,7 @@ class FediversePublisherPlugin extends Plugin
      * Plugin version reported in NodeInfo `software.version`. Bumped
      * in lockstep with the version field in blueprints.yaml.
      */
-    private const SOFTWARE_VERSION = '0.0.4';
+    private const SOFTWARE_VERSION = '0.0.5';
     private const SOFTWARE_NAME    = 'grav-fediverse-publisher';
     private const HOST_PLATFORM    = 'grav';
 
@@ -196,7 +196,30 @@ class FediversePublisherPlugin extends Plugin
                 return null;
             }
             $loader = require $autoload;
-            return $loader instanceof ClassLoader ? $loader : null;
+            if (!$loader instanceof ClassLoader) {
+                return null;
+            }
+            // Composer's generated autoload.php registers the loader
+            // with prepend=true. That puts the plugin's vendor in
+            // front of Grav's vendor for any class both define —
+            // most importantly `Psr\Log\*`. The plugin pins psr/log
+            // ^1.1 (Grav 1.7 compat), Grav 2.0 ships v3. With prepend
+            // we serve v1 AbstractLogger against an in-memory v3
+            // LoggerInterface and PHP fatals.
+            //
+            // Re-register with prepend=false so the host Grav vendor
+            // wins for shared classes; our plugin-exclusive classes
+            // (landrok, phpseclib, nyholm, ...) still resolve via
+            // PSR-4 normally because Grav doesn't ship them. This is
+            // the layered defense behind RequestSigner's null-default-
+            // logger trick; the autoloader change is the durable fix,
+            // the null-default is the belt.
+            //
+            // See review-notes-codex-2026-05-21-round4.md for the
+            // call-out that surfaced this.
+            $loader->unregister();
+            $loader->register(false);
+            return $loader;
         } catch (\Throwable $e) {
             \error_log('fediverse-publisher: autoload failed, plugin disabled: ' . $e->getMessage());
             return null;
@@ -212,12 +235,14 @@ class FediversePublisherPlugin extends Plugin
             // the class. We still want to be able to surface a useful
             // error to the admin, not just 500.
             if (!\class_exists(PreflightCheck::class, false)) {
+                require_once __DIR__ . '/classes/Config/HostBaseResolver.php';
                 require_once __DIR__ . '/classes/Preflight/PreflightCheck.php';
             }
 
             $this->preflight = new PreflightCheck(
-                \extension_loaded('pdo_sqlite'),
-                $this->resolveBaseUrlPath(),
+                hasPdoSqlite:      \extension_loaded('pdo_sqlite'),
+                baseUrlPath:       $this->resolveBaseUrlPath(),
+                resolvedHostBase:  $this->resolveHostBase(),
             );
 
             if (!$this->preflight->isHealthy()) {
@@ -590,17 +615,18 @@ class FediversePublisherPlugin extends Plugin
 
     private function resolveHostBase(): string
     {
+        $configArr = (array) $this->config->get('plugins.fediverse-publisher', []);
+        $gravRootUrl = '';
         $uri = $this->grav['uri'] ?? null;
         if ($uri !== null && \method_exists($uri, 'rootUrl')) {
-            $absolute = (string) $uri->rootUrl(true);
-            if ($absolute !== '') {
-                return \rtrim($absolute, '/');
-            }
+            $gravRootUrl = (string) $uri->rootUrl(true);
         }
-        // Last-resort guess. Should never trigger inside Grav.
-        $scheme = !empty($_SERVER['HTTPS']) ? 'https' : 'http';
-        $host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
-        return $scheme . '://' . $host;
+        return HostBaseResolver::resolve(
+            configuredCanonical: $this->configStr($configArr, 'federation.canonical_host'),
+            gravRootUrl:         $gravRootUrl,
+            serverHttps:         !empty($_SERVER['HTTPS']),
+            serverHost:          (string) ($_SERVER['HTTP_HOST'] ?? ''),
+        );
     }
 
     private function resolveKeysDir(): string

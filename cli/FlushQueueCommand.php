@@ -6,6 +6,7 @@ namespace Grav\Plugin\Console;
 
 use Grav\Common\Grav;
 use Grav\Console\ConsoleCommand;
+use Grav\Plugin\FediversePublisher\Config\HostBaseResolver;
 use Grav\Plugin\FediversePublisher\Keys\KeyStore;
 use Grav\Plugin\FediversePublisher\Push\Dispatcher;
 use Grav\Plugin\FediversePublisher\Push\FailureClassifier;
@@ -17,7 +18,9 @@ use Grav\Plugin\FediversePublisher\Signature\SystemClock;
 use Grav\Plugin\FediversePublisher\Storage\Database;
 use Grav\Plugin\FediversePublisher\Storage\FollowerStore;
 use GuzzleHttp\Client as GuzzleClient;
-use Psr\Log\NullLogger;
+use Monolog\Handler\StreamHandler;
+use Monolog\Logger as MonologLogger;
+use Psr\Log\LoggerInterface;
 
 /**
  * `bin/plugin fediverse-publisher flush-queue`
@@ -61,14 +64,45 @@ final class FlushQueueCommand extends ConsoleCommand
         $userData  = (string) $locator->findResource('user-data://', true);
         $dbPath    = $userData . '/fediverse-publisher/fediverse-publisher.sqlite';
         $keysDir   = $userData . '/fediverse-publisher/keys';
-        $hostBase  = \rtrim((string) $grav['uri']->rootUrl(true), '/');
+
+        // hostBase via HostBaseResolver, NOT directly off
+        // `$grav['uri']->rootUrl(true)` — in CLI that returns
+        // `http://localhost`, which Mastodon refuses as a private-
+        // network reference (v0.0.4 production showstopper). The
+        // resolver prefers the operator-set
+        // `federation.canonical_host`, falls back to rootUrl/
+        // HTTP_HOST only in web context.
+        $hostBase = HostBaseResolver::resolve(
+            configuredCanonical: \is_string($config['federation']['canonical_host'] ?? null)
+                ? (string) $config['federation']['canonical_host']
+                : '',
+            gravRootUrl:         (string) $grav['uri']->rootUrl(true),
+            serverHttps:         !empty($_SERVER['HTTPS']),
+            serverHost:          (string) ($_SERVER['HTTP_HOST'] ?? ''),
+        );
+        if (!HostBaseResolver::isPublishable($hostBase)) {
+            $this->output->writeln(\sprintf(
+                '<error>Resolved hostBase %s is not publishable. Set federation.canonical_host '
+                . 'to your public https URL before draining the queue.</error>',
+                $hostBase
+            ));
+            return 1;
+        }
         $actorUrl  = $hostBase . '/activitypub/actor';
 
         $pdo = Database::connect($dbPath);
         Database::migrate($pdo);
 
+        // Logger sourced from Grav, with the same Monolog fallback the
+        // web entrypoint uses (fediverse-publisher.php::resolveLogger).
+        // NEVER `new NullLogger()` here — that triggers psr/log
+        // AbstractLogger autoload, which fatals when the plugin's
+        // vendor and Grav's vendor have mismatched psr/log major
+        // versions. See RequestSigner's docblock for the full chain.
+        $log = $this->resolveLogger($grav);
+
         $clock     = new SystemClock();
-        $signer    = new RequestSigner(new Signer(), $clock);
+        $signer    = new RequestSigner(new Signer(), $clock, $log);
         $keys      = new KeyStore($keysDir);
         $followers = new FollowerStore($pdo);
         $queue     = new OutboundQueue($pdo);
@@ -77,24 +111,17 @@ final class FlushQueueCommand extends ConsoleCommand
             'allow_redirects' => false,
         ]);
 
-        $allowCidrs = $config['federation']['dev_allow_cidrs'] ?? [];
-        $allowCidrs = \is_array($allowCidrs)
-            ? \array_values(\array_filter($allowCidrs, '\\is_string'))
-            : [];
-
         $dispatcher = new Dispatcher(
-            queue:                 $queue,
-            signer:                $signer,
-            keys:                  $keys,
-            followers:             $followers,
-            retryPolicy:           new RetryPolicy(),
-            classifier:            new FailureClassifier(),
-            http:                  $http,
-            clock:                 $clock,
-            log:                   new NullLogger(),
-            localActorUrl:         $actorUrl,
-            localKeyUsername:      $username,
-            allowedReservedCidrs:  $allowCidrs,
+            queue:            $queue,
+            signer:           $signer,
+            keys:             $keys,
+            followers:        $followers,
+            retryPolicy:      new RetryPolicy(),
+            classifier:       new FailureClassifier(),
+            http:             $http,
+            log:              $log,
+            localActorUrl:    $actorUrl,
+            localKeyUsername: $username,
         );
 
         $counts = $dispatcher->tick();
@@ -108,5 +135,31 @@ final class FlushQueueCommand extends ConsoleCommand
             $counts['stale']     ?? 0,
         ));
         return 0;
+    }
+
+    /**
+     * Resolve Grav's PSR-3 logger with a Monolog fallback. Mirrors
+     * `fediverse-publisher.php::resolveLogger()` so CLI and web paths
+     * behave the same way under logger-container hiccups. Both paths
+     * end at a real PSR-3 logger; neither path ever instantiates a
+     * psr/log `NullLogger`, which would force the conflicting
+     * `AbstractLogger` autoload.
+     */
+    private function resolveLogger(Grav $grav): LoggerInterface
+    {
+        $candidate = $grav['log'] ?? null;
+        if ($candidate instanceof LoggerInterface) {
+            return $candidate;
+        }
+        $locator = $grav['locator'] ?? null;
+        $logDir  = ($locator !== null && \method_exists($locator, 'findResource'))
+            ? (string) $locator->findResource('log://', true)
+            : '';
+        if ($logDir === '' && \defined('GRAV_ROOT')) {
+            $logDir = \GRAV_ROOT . '/logs';
+        }
+        $logger = new MonologLogger('fediverse-publisher');
+        $logger->pushHandler(new StreamHandler($logDir . '/fediverse-publisher.log', \Monolog\Level::Info));
+        return $logger;
     }
 }

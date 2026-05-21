@@ -6,7 +6,6 @@ namespace Grav\Plugin\FediversePublisher\Signature;
 
 use Psr\Http\Message\RequestInterface;
 use Psr\Log\LoggerInterface;
-use Psr\Log\NullLogger;
 
 /**
  * Builds + signs an outbound POST so a remote inbox accepts it.
@@ -30,8 +29,25 @@ final class RequestSigner
     public function __construct(
         private readonly Signer $signer,
         private readonly Clock $clock,
-        private readonly LoggerInterface $log = new NullLogger(),
+        private readonly ?LoggerInterface $log = null,
     ) {
+        // Default is `null`, not `new NullLogger()`. Instantiating
+        // `NullLogger` forces psr/log's AbstractLogger autoload, which
+        // fatals at boot when the plugin's vendor ships psr/log v1.x
+        // and the host Grav ships v3 (Grav 2.0) or vice versa — the
+        // v1 AbstractLogger.emergency($message) signature is then
+        // checked against the v3 LoggerInterface.emergency(Stringable|
+        // string $message): void already in memory, and the
+        // signature-mismatch is fatal. Keeping the default null and
+        // using the nullsafe operator at the call site avoids
+        // touching AbstractLogger at all on the no-logger path.
+        //
+        // Known residual fragility: the plugin's autoloader is
+        // composer-prepended in CLI, so the plugin's bundled
+        // `Psr\Log\LoggerInterface` may still win autoload-order even
+        // when Grav's vendor ships a newer one. The proper structural
+        // fix is php-scoper / Strauss vendor-prefixing — tracked as
+        // outstanding architectural debt, not addressed here.
     }
 
     /**
@@ -90,7 +106,7 @@ final class RequestSigner
         // the exact bytes that were signed. The signature itself is
         // truncated — only the first 12 chars are useful for matching
         // attempts, and full signatures clutter the log.
-        $this->log->debug('outbound HTTP signature built', [
+        $this->log?->debug('outbound HTTP signature built', [
             'key_id'         => $keyId,
             'signing_string' => $signingString,
             'digest'         => $digest,

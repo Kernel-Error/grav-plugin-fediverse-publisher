@@ -1,7 +1,7 @@
 name: Fediverse Publisher
 slug: fediverse-publisher
 type: plugin
-version: 0.0.4
+version: 0.0.5
 description: "Publish a Grav blog to the Fediverse (Mastodon, Pleroma, GoToSocial, Lemmy, ...) via the ActivityPub protocol."
 icon: share-alt
 author:
@@ -95,6 +95,15 @@ form:
       type: section
       title: 'Federation'
       underline: true
+
+    federation.canonical_host:
+      type: text
+      label: 'Canonical host URL'
+      help: "Public https URL of this site — origin only, no path, no port. Used in actor URL, keyId, and the inbox/outbox URLs published in the actor JSON-LD. MUST be set explicitly because Grav's CLI scheduler context can't derive this — peers refuse keyIds that resolve to localhost. ActivityPub + WebFinger require Grav to be served at the document root, so a path segment is not supported. Example: https://www.example.com"
+      placeholder: 'https://www.example.com'
+      validate:
+        required: true
+        pattern: '^https://[a-z0-9.\-]+/?$'
 
     federation.public_only:
       type: toggle
