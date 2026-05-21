@@ -6,6 +6,53 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed (v0.0.2 — first production-deploy bug-fix)
+
+The first attempt at deploying v0.0.1 on a Grav 1.7 production site
+(beratung-rheinbach.de, PHP 8.3.30 on FreeBSD) took the site down
+with HTTP 500 site-wide as soon as the plugin's `composer install`
+ran — without the plugin even being enabled. Root cause was a
+transitive-dependency conflict; recovery required moving the
+plugin directory out of the way and restarting PHP-FPM (a `reload`
+doesn't clear OPcache).
+
+- **`psr/log` pinned to `^1.1`** in `composer.json`. The previous
+  `symfony/cache 7.4` transitive dragged in `psr/log` v3, whose
+  typed `emergency(string|Stringable $message, ...)` signature
+  conflicts with Grav 1.7's bundled v1 (untyped `$message`). PHP
+  hard-fails on the incompatible declaration at autoload time and
+  the entire site goes 500 — including any request to a disabled
+  plugin, because Grav still calls `autoload()` on disabled
+  plugins. v0.0.2 pins to v1.1.x explicitly so the dep never
+  bumps above the version Grav 1.7 ships.
+- **Defensive boot.** `autoload()`, `runPreflight()`,
+  `onPagesInitialized()`, and `onPageInitialized()` now catch
+  `\Throwable` and degrade to a no-op + error_log entry instead of
+  letting the host site hit 500. The plugin can fail closed
+  without taking the surrounding Grav installation with it.
+- **`PreflightCheck` loaded via explicit `require_once`** before
+  the Composer autoloader runs, not via PSR-4. So even if vendor/
+  is gone or broken, the preflight class itself remains available
+  and can still emit a clear admin notice.
+
+### Changed (v0.0.2 — README accuracy from production feedback)
+
+- Pre-flight extension list now mentions `ext-intl` explicitly
+  (not always present on Debian/Alpine/FreeBSD without an extra
+  package).
+- Scheduler section rewritten — Grav 1.7 has no
+  `bin/grav scheduler-install` or `scheduler-status` shortcut.
+  The README now documents the manual crontab line.
+- `bin/grav clearcache --all` (no dash inside the command name)
+  noted in the operator section.
+- FreeBSD composer package name (`php83-composer` etc.) noted in
+  the install section.
+- Common `chown` placeholders filled in for Debian / FreeBSD /
+  Alpine instead of bare colons.
+- New Troubleshooting section captures the psr/log recovery
+  recipe, "flush-queue returns processed=0" diagnosis, "follow
+  stays pending" diagnosis.
+
 ### Added
 - Initial plugin scaffold: `composer.json` with the dependency set
   ratified by ADR-002 (`landrok/activitypub`, `phpseclib/phpseclib`,
