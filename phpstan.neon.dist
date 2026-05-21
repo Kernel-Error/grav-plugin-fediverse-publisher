@@ -1,0 +1,11 @@
+parameters:
+    level: 6
+    paths:
+        - fediverse-publisher.php
+        - classes
+        - tests
+    excludePaths:
+        - vendor/*
+    treatPhpDocTypesAsCertain: false
+    parallel:
+        maximumNumberOfProcesses: 4

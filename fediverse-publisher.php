@@ -1,0 +1,615 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Grav\Plugin;
+
+use Composer\Autoload\ClassLoader;
+use Grav\Common\Plugin;
+use Grav\Plugin\FediversePublisher\Actor\ActorBuilder;
+use Grav\Plugin\FediversePublisher\Http\ActorController;
+use Grav\Plugin\FediversePublisher\Http\BlogPostNegotiator;
+use Grav\Plugin\FediversePublisher\Http\NodeInfoController;
+use Grav\Plugin\FediversePublisher\Http\NodeInfoDiscoveryController;
+use Grav\Plugin\FediversePublisher\Http\OutboxController;
+use Grav\Plugin\FediversePublisher\Http\Router;
+use Grav\Plugin\FediversePublisher\Http\WebFingerController;
+use Grav\Plugin\FediversePublisher\Inbox\Activities\FollowHandler;
+use Grav\Plugin\FediversePublisher\Inbox\Activities\UndoFollowHandler;
+use Grav\Plugin\FediversePublisher\Inbox\InboxController;
+use Grav\Plugin\FediversePublisher\Keys\KeyStore;
+use Grav\Plugin\FediversePublisher\NodeInfo\NodeInfoBuilder;
+use Grav\Plugin\FediversePublisher\Outbox\ActivityTransformer;
+use Grav\Plugin\FediversePublisher\Outbox\GravPageSource;
+use Grav\Plugin\FediversePublisher\Outbox\OutboxBroadcaster;
+use Grav\Plugin\FediversePublisher\Outbox\PageRecord;
+use Grav\Plugin\FediversePublisher\Preflight\PreflightCheck;
+use Grav\Plugin\FediversePublisher\Push\Dispatcher;
+use Grav\Plugin\FediversePublisher\Push\FailureClassifier;
+use Grav\Plugin\FediversePublisher\Push\OutboundQueue;
+use Grav\Plugin\FediversePublisher\Push\RetryPolicy;
+use Grav\Plugin\FediversePublisher\Signature\CryptoVerifier;
+use Grav\Plugin\FediversePublisher\Signature\DateChecker;
+use Grav\Plugin\FediversePublisher\Signature\DigestChecker;
+use Grav\Plugin\FediversePublisher\Signature\KeyCache;
+use Grav\Plugin\FediversePublisher\Signature\KeyFetcher;
+use Grav\Plugin\FediversePublisher\Signature\KeyProvider;
+use Grav\Plugin\FediversePublisher\Signature\RateLimitedLogger;
+use Grav\Plugin\FediversePublisher\Signature\RequestSigner;
+use Grav\Plugin\FediversePublisher\Signature\Signer;
+use Grav\Plugin\FediversePublisher\Signature\SystemClock;
+use Grav\Plugin\FediversePublisher\Signature\Verifier;
+use Grav\Plugin\FediversePublisher\Storage\Database;
+use Grav\Plugin\FediversePublisher\Storage\FollowerStore;
+use Grav\Plugin\FediversePublisher\Storage\InboxLog;
+use GuzzleHttp\Client as GuzzleClient;
+use Monolog\Handler\StreamHandler;
+use Monolog\Logger as MonologLogger;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
+use Nyholm\Psr7Server\ServerRequestCreator;
+use Nyholm\Psr7\Factory\Psr17Factory;
+use Psr\Http\Message\ServerRequestInterface;
+
+/**
+ * Entry point for the Fediverse Publisher plugin.
+ */
+class FediversePublisherPlugin extends Plugin
+{
+    /**
+     * Plugin version reported in NodeInfo `software.version`. Bumped
+     * in lockstep with the version field in blueprints.yaml.
+     */
+    private const SOFTWARE_VERSION = '0.0.1';
+    private const SOFTWARE_NAME    = 'grav-fediverse-publisher';
+    private const HOST_PLATFORM    = 'grav';
+
+    /**
+     * Path prefixes our dispatcher is responsible for. Requests outside
+     * this set are skipped before any controller is even instantiated,
+     * keeping the hot path for normal Grav requests cheap.
+     *
+     * Stored WITHOUT trailing slashes so the match works for both exact
+     * paths (e.g. `/.well-known/webfinger`) and prefix paths (e.g.
+     * `/activitypub` matching `/activitypub/actor`).
+     *
+     * @var list<string>
+     */
+    private const HANDLED_PREFIXES = [
+        '/.well-known/webfinger',
+        '/.well-known/nodeinfo',
+        '/nodeinfo',
+        '/activitypub',
+    ];
+
+    private ?PreflightCheck $preflight = null;
+
+    /**
+     * @return array<string, mixed>
+     */
+    public static function getSubscribedEvents(): array
+    {
+        return [
+            // Preflight runs early so we can fail fast on missing
+            // pdo_sqlite or a subdirectory install. The actual
+            // dispatcher fires later (onPagesInitialized) because
+            // the Outbox needs Grav's pages collection, which isn't
+            // built at onPluginsInitialized time.
+            'onPluginsInitialized'   => [['runPreflight', 0]],
+            'onPagesInitialized'     => [['onPagesInitialized', 0]],
+            'onPageInitialized'      => [['onPageInitialized',  0]],
+            'onAdminAfterSave'       => [['onPageSaved', 0]],
+            'onSchedulerInitialized' => [['onSchedulerInitialized', 0]],
+        ];
+    }
+
+    public function onSchedulerInitialized(\RocketTheme\Toolbox\Event\Event $event): void
+    {
+        if ($this->preflight === null || !$this->preflight->isHealthy()) {
+            return;
+        }
+        $scheduler = $event['scheduler'] ?? null;
+        if ($scheduler === null || !\method_exists($scheduler, 'addFunction')) {
+            return;
+        }
+        $self = $this;
+        $job = $scheduler->addFunction(
+            function () use ($self): void {
+                $self->runPushDispatcher();
+            },
+            [],
+            'fediverse-publisher-push',
+        );
+        if (\method_exists($job, 'at')) {
+            $job->at('* * * * *');     // every minute
+        }
+    }
+
+    /**
+     * Drains the push queue. Called from the Grav scheduler tick AND
+     * from the `bin/plugin fediverse-publisher push:flush` CLI for
+     * dev. Public so the CLI command can invoke it directly.
+     */
+    public function runPushDispatcher(): array
+    {
+        return $this->buildDispatcher()->tick();
+    }
+
+    /**
+     * Fired by Grav admin when a page is saved. Broadcasts the
+     * Create activity to every active follower if the page falls
+     * under the blog filter and is published.
+     */
+    public function onPageSaved(\RocketTheme\Toolbox\Event\Event $event): void
+    {
+        if ($this->preflight === null || !$this->preflight->isHealthy()) {
+            return;
+        }
+        $object = $event['object'] ?? null;
+        if ($object === null || !\method_exists($object, 'route')) {
+            return;
+        }
+        // Only act on pages, not on user/config/site saves that share
+        // this hook.
+        if (!\method_exists($object, 'published') || !\method_exists($object, 'routable')) {
+            return;
+        }
+        if (!$object->published() || !$object->routable()) {
+            return;
+        }
+
+        $hostBase  = $this->resolveHostBase();
+        $configArr = (array) $this->config->get('plugins.fediverse-publisher', []);
+        $pages = new GravPageSource(
+            $this->grav['pages'],
+            $this->configStr($configArr, 'blog.path_filter') ?: '/blog/**',
+            $hostBase,
+        );
+        $record = $pages->findByRoute((string) $object->route());
+        if ($record === null) {
+            return;     // not under our blog filter
+        }
+
+        $this->buildBroadcaster()->broadcast($record);
+    }
+
+    /**
+     * Composer autoload. Grav core calls this on every plugin during
+     * boot and registers the returned ClassLoader via setAutoloader().
+     * MUST be public.
+     */
+    public function autoload(): ?ClassLoader
+    {
+        $autoload = __DIR__ . '/vendor/autoload.php';
+        if (!\is_file($autoload)) {
+            return null;
+        }
+        /** @var ClassLoader $loader */
+        $loader = require $autoload;
+        return $loader;
+    }
+
+    public function runPreflight(): void
+    {
+        $this->preflight = new PreflightCheck(
+            \extension_loaded('pdo_sqlite'),
+            $this->resolveBaseUrlPath(),
+        );
+
+        if (!$this->preflight->isHealthy()) {
+            $this->emitAdminNotices($this->preflight->getErrors());
+        }
+    }
+
+    public function onPagesInitialized(): void
+    {
+        if ($this->preflight === null || !$this->preflight->isHealthy()) {
+            return;
+        }
+
+        // Fast bail: only engage if the request path is something we
+        // own. Every other Grav request (admin, pages, assets) passes
+        // through untouched.
+        $path = $this->currentRequestPath();
+        if (!$this->isHandledPath($path)) {
+            return;
+        }
+
+        $response = $this->buildRouter()->dispatch($this->currentRequest());
+        if ($response !== null) {
+            $this->grav->close($response);
+        }
+    }
+
+    private function buildRouter(): Router
+    {
+        $hostBase   = $this->resolveHostBase();
+        $localHost  = (string) \parse_url($hostBase, PHP_URL_HOST);
+        $config     = $this->config->get('plugins.fediverse-publisher', []);
+        $configArr  = \is_array($config) ? $config : [];
+
+        $keys       = new KeyStore($this->resolveKeysDir());
+        $actor      = new ActorBuilder($keys, $hostBase, $configArr);
+
+        $webfinger  = new WebFingerController($actor, $localHost);
+        $actorCtrl  = new ActorController($actor);
+
+        $nodeInfo   = new NodeInfoBuilder(
+            softwareName:    self::SOFTWARE_NAME,
+            softwareVersion: self::SOFTWARE_VERSION,
+            hostPlatform:    self::HOST_PLATFORM,
+            hostVersion:     $this->resolveGravVersion(),
+            isConfigured:    $actor->isConfigured(),
+            nodeName:        $this->configStr($configArr, 'actor.name'),
+            nodeDescription: $this->configStr($configArr, 'actor.summary'),
+        );
+        $nodeInfoDiscovery = new NodeInfoDiscoveryController($nodeInfo, $hostBase);
+        $nodeInfoCtrl      = new NodeInfoController($nodeInfo);
+
+        $outboxCtrl = $this->buildOutboxController($hostBase, $configArr, $actor);
+        $inboxCtrl  = $this->buildInboxController($hostBase, $configArr, $actor);
+
+        $router = new Router();
+        $router->get('/.well-known/webfinger', [$webfinger,        'handle']);
+        $router->get('/.well-known/nodeinfo',  [$nodeInfoDiscovery,'handle']);
+        $router->get('/nodeinfo/2.0',          [$nodeInfoCtrl,     'handle']);
+        $router->get('/activitypub/actor',     [$actorCtrl,        'handle']);
+        $router->get('/activitypub/outbox',    [$outboxCtrl,       'handle']);
+        $router->post('/activitypub/inbox',    [$inboxCtrl,        'handle']);
+
+        return $router;
+    }
+
+    /**
+     * @param array<string, mixed> $configArr
+     */
+    private function buildInboxController(string $hostBase, array $configArr, ActorBuilder $actor): InboxController
+    {
+        $pdo = Database::connect($this->resolveDatabasePath());
+        Database::migrate($pdo);
+
+        $clock     = new SystemClock();
+        $rateLog   = new RateLimitedLogger($this->resolveLogger(), $clock);
+        $http      = new GuzzleClient([
+            'http_errors' => false,
+            'allow_redirects' => false,
+        ]);
+        $resolver  = static function (string $host): array {
+            $records = @\dns_get_record($host, DNS_A | DNS_AAAA);
+            if ($records === false) {
+                return [];
+            }
+            $ips = [];
+            foreach ($records as $rec) {
+                if (isset($rec['ip']))    { $ips[] = $rec['ip']; }
+                if (isset($rec['ipv6']))  { $ips[] = $rec['ipv6']; }
+            }
+            return $ips;
+        };
+        $allowCidrs = $configArr['federation']['dev_allow_cidrs'] ?? [];
+        if (!\is_array($allowCidrs)) {
+            $allowCidrs = [];
+        }
+        $userAgent = \sprintf(
+            'grav-plugin-fediverse-publisher/%s (+%s/)',
+            self::SOFTWARE_VERSION,
+            $hostBase,
+        );
+        $fetcher   = new KeyFetcher(
+            $http,
+            $clock,
+            $resolver,
+            \array_values(\array_filter($allowCidrs, '\\is_string')),
+            $userAgent,
+        );
+        $keyCache  = new KeyCache($pdo);
+        $keys      = new KeyProvider($keyCache, $fetcher, $rateLog, $clock);
+
+        $verifier  = new Verifier(
+            keys:    $keys,
+            dates:   new DateChecker($clock),
+            digests: new DigestChecker(),
+            crypto:  new CryptoVerifier(),
+            log:     new InboxLog($pdo),
+            rateLog: $rateLog,
+        );
+
+        $followers = new FollowerStore($pdo);
+        $queue     = new OutboundQueue($pdo);
+
+        return new InboxController(
+            verifier:       $verifier,
+            followHandler:  new FollowHandler($followers, $queue, $actor->actorUrl()),
+            undoHandler:    new UndoFollowHandler($followers, $actor->actorUrl()),
+        );
+    }
+
+    private function buildDispatcher(): Dispatcher
+    {
+        $hostBase   = $this->resolveHostBase();
+        $configArr  = (array) $this->config->get('plugins.fediverse-publisher', []);
+        $pdo        = Database::connect($this->resolveDatabasePath());
+        Database::migrate($pdo);
+        $clock      = new SystemClock();
+        $signer     = new RequestSigner(new Signer(), $clock);
+        $keys       = new KeyStore($this->resolveKeysDir());
+        $followers  = new FollowerStore($pdo);
+        $queue      = new OutboundQueue($pdo);
+        $http       = new GuzzleClient([
+            'http_errors'     => false,
+            'allow_redirects' => false,
+        ]);
+        $username   = $this->configStr($configArr, 'actor.username');
+        $allowCidrs = $configArr['federation']['dev_allow_cidrs'] ?? [];
+
+        return new Dispatcher(
+            queue:            $queue,
+            signer:           $signer,
+            keys:             $keys,
+            followers:        $followers,
+            retryPolicy:      new RetryPolicy(),
+            classifier:       new FailureClassifier(),
+            http:             $http,
+            clock:            $clock,
+            log:              $this->resolveLogger(),
+            localActorUrl:    $hostBase . '/activitypub/actor',
+            localKeyUsername: $username,
+            allowedReservedCidrs: \is_array($allowCidrs)
+                ? \array_values(\array_filter($allowCidrs, '\\is_string'))
+                : [],
+        );
+    }
+
+    private function buildBroadcaster(): OutboxBroadcaster
+    {
+        $hostBase  = $this->resolveHostBase();
+        $configArr = (array) $this->config->get('plugins.fediverse-publisher', []);
+        $pdo       = Database::connect($this->resolveDatabasePath());
+        Database::migrate($pdo);
+
+        $followers   = new FollowerStore($pdo);
+        $queue       = new OutboundQueue($pdo);
+        $transformer = new ActivityTransformer(
+            actorUrl:     $hostBase . '/activitypub/actor',
+            followersUrl: $hostBase . '/activitypub/followers',
+        );
+
+        return new OutboxBroadcaster(
+            followers:      $followers,
+            queue:          $queue,
+            transformer:    $transformer,
+            localActorUrl:  $hostBase . '/activitypub/actor',
+            noteThreshold:  $this->configInt($configArr, 'blog.note_threshold', 1000),
+            log:            $this->resolveLogger(),
+        );
+    }
+
+    private function resolveLogger(): LoggerInterface
+    {
+        $candidate = $this->grav['log'] ?? null;
+        if ($candidate instanceof LoggerInterface) {
+            return $candidate;
+        }
+        // Fall back to a Monolog writing to our own log file.
+        $logDir = (string) ($this->grav['locator']->findResource('log://', true) ?? GRAV_ROOT . '/logs');
+        $logger = new MonologLogger('fediverse-publisher');
+        $logger->pushHandler(new StreamHandler($logDir . '/fediverse-publisher.log', \Monolog\Level::Info));
+        return $logger;
+    }
+
+    private function resolveDatabasePath(): string
+    {
+        $locator = $this->grav['locator'] ?? null;
+        if ($locator !== null && \method_exists($locator, 'findResource')) {
+            $userData = (string) $locator->findResource('user-data://', true);
+            if ($userData !== '') {
+                return $userData . '/fediverse-publisher/fediverse-publisher.sqlite';
+            }
+        }
+        return GRAV_ROOT . '/user/data/fediverse-publisher/fediverse-publisher.sqlite';
+    }
+
+    /**
+     * @param array<string, mixed> $configArr
+     */
+    private function buildOutboxController(string $hostBase, array $configArr, ActorBuilder $actor): OutboxController
+    {
+        $transformer = new ActivityTransformer(
+            actorUrl:     $actor->actorUrl(),
+            followersUrl: $hostBase . '/activitypub/followers',
+        );
+        $pages = new GravPageSource(
+            $this->grav['pages'],
+            $this->configStr($configArr, 'blog.path_filter') ?: '/blog/**',
+            $hostBase,
+        );
+        return new OutboxController(
+            pages:          $pages,
+            transformer:    $transformer,
+            outboxUrl:      $hostBase . '/activitypub/outbox',
+            noteThreshold:  $this->configInt($configArr, 'blog.note_threshold', 1000),
+        );
+    }
+
+    /**
+     * Content negotiation on blog-post URLs (ADR-004 §2). If a peer
+     * fetches `/blog/<post>` with an AP-flavoured `Accept` header, we
+     * serve a Note/Article object instead of letting Grav render the
+     * HTML page. Otherwise we silently no-op.
+     */
+    public function onPageInitialized(): void
+    {
+        if ($this->preflight === null || !$this->preflight->isHealthy()) {
+            return;
+        }
+
+        $accept = (string) ($_SERVER['HTTP_ACCEPT'] ?? '');
+        if ($accept === '') {
+            return;
+        }
+
+        $configArr = (array) $this->config->get('plugins.fediverse-publisher', []);
+        $hostBase  = $this->resolveHostBase();
+
+        $pages = new GravPageSource(
+            $this->grav['pages'],
+            $this->configStr($configArr, 'blog.path_filter') ?: '/blog/**',
+            $hostBase,
+        );
+
+        $page = $this->grav['page'] ?? null;
+        if ($page === null || !\method_exists($page, 'route')) {
+            return;
+        }
+        $record = $pages->findByRoute((string) $page->route());
+        if ($record === null) {
+            return;
+        }
+
+        $keys = new KeyStore($this->resolveKeysDir());
+        $actor = new ActorBuilder($keys, $hostBase, $configArr);
+        $transformer = new ActivityTransformer(
+            actorUrl:     $actor->actorUrl(),
+            followersUrl: $hostBase . '/activitypub/followers',
+        );
+        $negotiator = new BlogPostNegotiator(
+            transformer:   $transformer,
+            noteThreshold: $this->configInt($configArr, 'blog.note_threshold', 1000),
+        );
+
+        if (!$negotiator->acceptsActivityPub($accept)) {
+            return;
+        }
+
+        $this->grav->close($negotiator->buildResponse($record));
+    }
+
+    /**
+     * @param array<string, mixed> $config
+     */
+    private function configInt(array $config, string $dottedKey, int $default): int
+    {
+        $value = $config;
+        foreach (\explode('.', $dottedKey) as $segment) {
+            if (!\is_array($value) || !\array_key_exists($segment, $value)) {
+                return $default;
+            }
+            $value = $value[$segment];
+        }
+        if (\is_int($value)) {
+            return $value;
+        }
+        if (\is_string($value) && \ctype_digit(\ltrim($value, '-'))) {
+            return (int) $value;
+        }
+        return $default;
+    }
+
+    private function resolveGravVersion(): string
+    {
+        if (\defined('GRAV_VERSION')) {
+            return (string) \GRAV_VERSION;
+        }
+        return 'unknown';
+    }
+
+    /**
+     * @param array<string, mixed> $config
+     */
+    private function configStr(array $config, string $dottedKey): string
+    {
+        $value = $config;
+        foreach (\explode('.', $dottedKey) as $segment) {
+            if (!\is_array($value) || !\array_key_exists($segment, $value)) {
+                return '';
+            }
+            $value = $value[$segment];
+        }
+        return \is_string($value) ? \trim($value) : '';
+    }
+
+    private function resolveHostBase(): string
+    {
+        $uri = $this->grav['uri'] ?? null;
+        if ($uri !== null && \method_exists($uri, 'rootUrl')) {
+            $absolute = (string) $uri->rootUrl(true);
+            if ($absolute !== '') {
+                return \rtrim($absolute, '/');
+            }
+        }
+        // Last-resort guess. Should never trigger inside Grav.
+        $scheme = !empty($_SERVER['HTTPS']) ? 'https' : 'http';
+        $host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        return $scheme . '://' . $host;
+    }
+
+    private function resolveKeysDir(): string
+    {
+        $locator = $this->grav['locator'] ?? null;
+        if ($locator !== null && \method_exists($locator, 'findResource')) {
+            $userData = (string) $locator->findResource('user-data://', true);
+            if ($userData !== '') {
+                return $userData . '/fediverse-publisher/keys';
+            }
+        }
+        // Hard fallback against the Grav root in the rare case the
+        // locator isn't available yet.
+        return GRAV_ROOT . '/user/data/fediverse-publisher/keys';
+    }
+
+    private function resolveBaseUrlPath(): string
+    {
+        $uri = $this->grav['uri'] ?? null;
+        if ($uri === null || !\method_exists($uri, 'rootUrl')) {
+            return '';
+        }
+        $rootUrl = (string) $uri->rootUrl(false);
+        return (string) \parse_url($rootUrl, PHP_URL_PATH);
+    }
+
+    private function currentRequestPath(): string
+    {
+        return (string) \parse_url(
+            $_SERVER['REQUEST_URI'] ?? '/',
+            PHP_URL_PATH,
+        );
+    }
+
+    private function isHandledPath(string $path): bool
+    {
+        foreach (self::HANDLED_PREFIXES as $prefix) {
+            if ($path === $prefix || \str_starts_with($path, $prefix . '/')) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function currentRequest(): ServerRequestInterface
+    {
+        // Prefer Grav's own PSR-7 ServerRequest if it's actually PSR-7.
+        $injected = $this->grav['request'] ?? null;
+        if ($injected instanceof ServerRequestInterface) {
+            return $injected;
+        }
+
+        // Otherwise rebuild from globals via Nyholm — works on any SAPI.
+        $factory = new Psr17Factory();
+        $creator = new ServerRequestCreator($factory, $factory, $factory, $factory);
+        return $creator->fromGlobals();
+    }
+
+    /**
+     * @param list<string> $errors
+     */
+    private function emitAdminNotices(array $errors): void
+    {
+        $messages = $this->grav['messages'] ?? null;
+        if ($messages === null) {
+            return;
+        }
+        foreach ($errors as $message) {
+            $messages->add('Fediverse Publisher: ' . $message, 'error');
+        }
+    }
+}

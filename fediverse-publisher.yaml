@@ -1,0 +1,25 @@
+# Default configuration for the Fediverse Publisher plugin. The admin
+# panel writes user/config/plugins/fediverse-publisher.yaml on top of
+# this. Do not edit these defaults — override them in the admin or in
+# the user config file.
+
+enabled: false
+
+actor:
+  username: ''
+  name: ''
+  summary: ''
+  icon_url: ''
+  image_url: ''
+
+blog:
+  path_filter: '/blog/**'
+  note_threshold: 1000
+
+federation:
+  public_only: true
+  # Dev-only: CIDR ranges that override the SSRF-reserved-IP block in
+  # the actor-key fetcher. Production keeps this empty — the whole
+  # point of the block is to refuse federation to private IPs.
+  # Use only in dev/test stacks that put peers on RFC 1918 networks.
+  dev_allow_cidrs: []

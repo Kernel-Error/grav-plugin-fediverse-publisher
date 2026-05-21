@@ -1,0 +1,105 @@
+name: Fediverse Publisher
+slug: fediverse-publisher
+type: plugin
+version: 0.0.1
+description: "Publish a Grav blog to the Fediverse (Mastodon, Pleroma, GoToSocial, Lemmy, ...) via the ActivityPub protocol."
+icon: share-alt
+author:
+  name: Sebastian van de Meer (Kernel-Error)
+  email: kernel-error@kernel-error.com
+  url: https://www.kernel-error.de/
+homepage: https://github.com/Kernel-Error/grav-plugin-fediverse-publisher
+keywords: activitypub, fediverse, mastodon, federation, webfinger, nodeinfo
+bugs: https://github.com/Kernel-Error/grav-plugin-fediverse-publisher/issues
+license: MIT
+
+dependencies:
+  - { name: grav, version: '>=1.7.51' }
+  - { name: php,  version: '>=8.1' }
+
+form:
+  validation: strict
+  fields:
+    enabled:
+      type: toggle
+      label: 'Plugin enabled'
+      help: 'Master switch. The plugin does nothing until this is on AND a valid actor is configured below.'
+      default: false
+      highlight: 1
+      options:
+        1: PLUGIN_ADMIN.ENABLED
+        0: PLUGIN_ADMIN.DISABLED
+      validate:
+        type: bool
+
+    actor_section:
+      type: section
+      title: 'Local actor'
+      underline: true
+
+    actor.username:
+      type: text
+      label: 'Username'
+      help: "Local part of the federated handle, e.g. 'blog' becomes @blog@your.host. Lowercase letters, digits, underscore, hyphen."
+      validate:
+        pattern: '^[a-z0-9_-]{1,32}$'
+        required: true
+
+    actor.name:
+      type: text
+      label: 'Display name'
+      help: 'Human-readable name shown in Mastodon-style clients.'
+
+    actor.summary:
+      type: textarea
+      label: 'Summary / bio (HTML)'
+      help: 'Short description shown in the actor profile.'
+      rows: 3
+
+    actor.icon_url:
+      type: text
+      label: 'Avatar URL'
+      help: 'Absolute URL to a square avatar image. Recommended 400x400, PNG or JPEG.'
+
+    actor.image_url:
+      type: text
+      label: 'Header image URL'
+      help: 'Absolute URL to a wide header image. Optional.'
+
+    blog_section:
+      type: section
+      title: 'Blog scope'
+      underline: true
+
+    blog.path_filter:
+      type: text
+      label: 'Blog path filter'
+      help: "Which Grav pages turn into outbox entries. Glob pattern, e.g. '/blog/**'."
+      default: '/blog/**'
+      validate:
+        required: true
+
+    blog.note_threshold:
+      type: number
+      label: 'Article threshold (characters)'
+      help: "Posts longer than this become 'Article' objects; shorter ones become 'Note'."
+      default: 1000
+      validate:
+        min: 100
+        max: 10000
+
+    federation_section:
+      type: section
+      title: 'Federation'
+      underline: true
+
+    federation.public_only:
+      type: toggle
+      label: 'Federate public pages only'
+      help: 'When on, only pages with visibility=public are pushed to followers. Recommended.'
+      default: true
+      options:
+        1: PLUGIN_ADMIN.YES
+        0: PLUGIN_ADMIN.NO
+      validate:
+        type: bool

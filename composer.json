@@ -1,0 +1,63 @@
+{
+    "name": "kernel-error/grav-plugin-fediverse-publisher",
+    "description": "Publish a Grav blog to the Fediverse (Mastodon, Pleroma, GoToSocial, Lemmy, ...) via the ActivityPub protocol.",
+    "type": "grav-plugin",
+    "keywords": ["grav", "plugin", "activitypub", "fediverse", "mastodon", "federation", "webfinger", "nodeinfo"],
+    "homepage": "https://www.kernel-error.de/",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Sebastian van de Meer (Kernel-Error)",
+            "email": "kernel-error@kernel-error.com",
+            "homepage": "https://www.kernel-error.de/"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/Kernel-Error/grav-plugin-fediverse-publisher/issues",
+        "source": "https://github.com/Kernel-Error/grav-plugin-fediverse-publisher"
+    },
+    "require": {
+        "php": "^8.1",
+        "ext-pdo_sqlite": "*",
+        "ext-curl": "*",
+        "ext-dom": "*",
+        "ext-intl": "*",
+        "ext-json": "*",
+        "ext-mbstring": "*",
+        "ext-openssl": "*",
+        "ext-simplexml": "*",
+        "landrok/activitypub": "^0.8.0",
+        "phpseclib/phpseclib": "^3.0",
+        "guzzlehttp/guzzle": "^7.8",
+        "nyholm/psr7": "^1.8",
+        "nyholm/psr7-server": "^1.1"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.5",
+        "phpstan/phpstan": "^1.11",
+        "friendsofphp/php-cs-fixer": "^3.59"
+    },
+    "autoload": {
+        "psr-4": {
+            "Grav\\Plugin\\FediversePublisher\\": "classes/",
+            "Grav\\Plugin\\Console\\": "cli/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Grav\\Plugin\\FediversePublisher\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "test:unit": "phpunit --testsuite=unit",
+        "test:integration": "phpunit --testsuite=integration",
+        "lint": "php-cs-fixer fix --dry-run --diff",
+        "lint:fix": "php-cs-fixer fix",
+        "analyse": "phpstan analyse"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": false
+    }
+}
