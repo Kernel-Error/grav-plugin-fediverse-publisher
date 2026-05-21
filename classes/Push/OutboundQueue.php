@@ -7,10 +7,14 @@ namespace Grav\Plugin\FediversePublisher\Push;
 use PDO;
 
 /**
- * Minimal push-queue table per ADR-001 + ADR-003 R2-1. Only the
- * schema and an `enqueue()` method land in Block 2c — that's enough
- * for FollowHandler to hand off the `Accept` activity. The worker /
- * dispatcher / signer that actually drains this queue is Block 2d.
+ * Push-queue table per ADR-001 + ADR-003 R2-1.
+ *
+ * Note on string literals in the SQL below: every value that is a
+ * string must be single-quoted. SQLite parses double-quoted tokens as
+ * identifiers (column / table names) and falls back to string literals
+ * only when the identifier doesn't resolve — and that fallback is
+ * disabled in PHP 8.3's libsqlite. The v0.0.2 production deploy
+ * documented exactly this footgun. Keep the single-quotes.
  */
 final class OutboundQueue
 {
@@ -21,13 +25,13 @@ final class OutboundQueue
     public function migrate(): void
     {
         $this->pdo->exec(
-            'CREATE TABLE IF NOT EXISTS push_queue (
+            "CREATE TABLE IF NOT EXISTS push_queue (
                 id               INTEGER PRIMARY KEY AUTOINCREMENT,
                 activity_id      TEXT NOT NULL,
                 recipient_inbox  TEXT NOT NULL,
                 actor            TEXT NOT NULL,
                 payload          TEXT NOT NULL,
-                status           TEXT NOT NULL DEFAULT "pending",
+                status           TEXT NOT NULL DEFAULT 'pending',
                 attempt_count    INTEGER NOT NULL DEFAULT 0,
                 next_attempt_at  INTEGER NOT NULL,
                 last_http_status INTEGER,
@@ -37,7 +41,7 @@ final class OutboundQueue
                 created_at       INTEGER NOT NULL,
                 updated_at       INTEGER NOT NULL,
                 UNIQUE (activity_id, recipient_inbox)
-            )'
+            )"
         );
         $this->pdo->exec(
             'CREATE INDEX IF NOT EXISTS idx_push_queue_status_next
@@ -57,10 +61,10 @@ final class OutboundQueue
         $now = time();
         $payload = (string) json_encode($activity, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         $stmt = $this->pdo->prepare(
-            'INSERT OR IGNORE INTO push_queue
+            "INSERT OR IGNORE INTO push_queue
                 (activity_id, recipient_inbox, actor, payload, status, attempt_count, next_attempt_at, created_at, updated_at)
              VALUES
-                (:aid, :inbox, :actor, :payload, "pending", 0, :ts, :ts, :ts)'
+                (:aid, :inbox, :actor, :payload, 'pending', 0, :ts, :ts, :ts)"
         );
         $stmt->execute([
             ':aid'     => (string) ($activity['id'] ?? ''),
@@ -82,9 +86,9 @@ final class OutboundQueue
     {
         $cutoff = time() - $reclaimThresholdSeconds;
         $stmt = $this->pdo->prepare(
-            'UPDATE push_queue
-                SET status = "pending", worker_id = NULL, claimed_at = NULL, updated_at = :now
-              WHERE status = "processing" AND claimed_at < :cutoff'
+            "UPDATE push_queue
+                SET status = 'pending', worker_id = NULL, claimed_at = NULL, updated_at = :now
+              WHERE status = 'processing' AND claimed_at < :cutoff"
         );
         $stmt->execute([':now' => time(), ':cutoff' => $cutoff]);
         return $stmt->rowCount();
@@ -103,10 +107,10 @@ final class OutboundQueue
         $this->pdo->beginTransaction();
         try {
             $stmt = $this->pdo->prepare(
-                'SELECT id FROM push_queue
-                  WHERE status = "pending" AND next_attempt_at <= :now
+                "SELECT id FROM push_queue
+                  WHERE status = 'pending' AND next_attempt_at <= :now
                   ORDER BY next_attempt_at ASC, id ASC
-                  LIMIT :lim'
+                  LIMIT :lim"
             );
             $stmt->bindValue(':now', $now, \PDO::PARAM_INT);
             $stmt->bindValue(':lim', $limit, \PDO::PARAM_INT);
@@ -157,9 +161,9 @@ final class OutboundQueue
     public function heartbeat(int $id, string $workerId): bool
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE push_queue
+            "UPDATE push_queue
                 SET claimed_at = :ts, updated_at = :ts
-              WHERE id = :id AND worker_id = :w AND status = "processing"'
+              WHERE id = :id AND worker_id = :w AND status = 'processing'"
         );
         $stmt->execute([':id' => $id, ':w' => $workerId, ':ts' => time()]);
         return $stmt->rowCount() === 1;
@@ -168,9 +172,9 @@ final class OutboundQueue
     public function markDone(int $id): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE push_queue
-                SET status = "done", last_http_status = 200, updated_at = :ts
-              WHERE id = :id'
+            "UPDATE push_queue
+                SET status = 'done', last_http_status = 200, updated_at = :ts
+              WHERE id = :id"
         );
         $stmt->execute([':id' => $id, ':ts' => time()]);
     }
@@ -178,12 +182,12 @@ final class OutboundQueue
     public function markDead(int $id, int $status, string $reason): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE push_queue
-                SET status = "dead",
+            "UPDATE push_queue
+                SET status = 'dead',
                     last_http_status = :s,
                     last_error = :r,
                     updated_at = :ts
-              WHERE id = :id'
+              WHERE id = :id"
         );
         $stmt->execute([':id' => $id, ':s' => $status, ':r' => $reason, ':ts' => time()]);
     }
@@ -191,8 +195,8 @@ final class OutboundQueue
     public function reschedule(int $id, int $newAttemptCount, int $delaySeconds, int $lastStatus, string $reason): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE push_queue
-                SET status = "pending",
+            "UPDATE push_queue
+                SET status = 'pending',
                     attempt_count = :c,
                     next_attempt_at = :next,
                     last_http_status = :s,
@@ -200,7 +204,7 @@ final class OutboundQueue
                     worker_id = NULL,
                     claimed_at = NULL,
                     updated_at = :ts
-              WHERE id = :id'
+              WHERE id = :id"
         );
         $stmt->execute([
             ':id'   => $id,

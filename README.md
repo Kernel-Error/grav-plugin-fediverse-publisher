@@ -107,8 +107,38 @@ expects. If the external cron fires less often (e.g. hourly), the
 push queue still drains, just at the slower cadence; pushes pile up
 between ticks and may bump against the 7-attempt retry cap.
 
-`bin/grav scheduler -j status` lists the plugin's job alongside any
-others Grav has been told about.
+To see what Grav currently has registered, use
+`bin/grav scheduler` (no subcommand) — it prints the configured
+job list. (Older docs mention `-j status`; that flag is not in
+the Grav 1.7 CLI.)
+
+## Webserver — narrow `.well-known/` lockdown
+
+If your vhost forwards all of `/.well-known/` to Grav, no extra
+config is needed; WebFinger and NodeInfo just work. Many
+hardened setups, though, restrict `.well-known/` to only
+`acme-challenge` + `security.txt` and 404 everything else. In
+that case Mastodon's discovery probe gets a 404 instead of
+WebFinger and `@blog@your-host` looks unresolvable.
+
+For nginx, add two surgical `location =` blocks **before** the
+generic `^~ /.well-known/` block (order matters — nginx picks
+the most specific match):
+
+```nginx
+location = /.well-known/webfinger {
+    try_files $uri $uri/ /index.php?$args;
+}
+location = /.well-known/nodeinfo {
+    try_files $uri $uri/ /index.php?$args;
+}
+location ^~ /.well-known/ {
+    # …your existing restrictive policy…
+}
+```
+
+This forwards exactly the two AP-discovery paths to Grav and
+leaves the rest of `.well-known/` under your existing policy.
 
 ## Configuration
 

@@ -6,6 +6,66 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed (v0.0.3 — second production-deploy bug-fix)
+
+The v0.0.2 deploy got us past the boot crash from v0.0.1 but
+surfaced a fresh SQL bug under PHP 8.3 / SQLite: every push-queue
+write blew up with `no such column: "pending"`. Root cause:
+double-quoted string literals in the SQL. SQLite parses
+`"pending"` as an identifier (column name) and only falls back to
+a string literal when the identifier doesn't resolve — and that
+fallback is disabled in the PHP 8.3 SQLite build. The fix
+touches every SQL statement in `OutboundQueue` and the two
+`FollowerStore` writes that had the same shape.
+
+- **All SQL string literals switched to single quotes.** PHP outer
+  string is now double-quoted (so `\n` inside the SQL stays
+  readable), inner SQL literals are single-quoted (`'pending'`,
+  `'processing'`, `'done'`, `'dead'`, `'stale'`). `OutboundQueue`
+  fully rewritten with a block comment explaining the footgun so
+  future-you doesn't reintroduce it. Two spots fixed in
+  `FollowerStore::markAccepted()` and `FollowerStore::listActive()`.
+
+### Added (v0.0.3 — endpoints and richer Article)
+
+- **`GET /activitypub/followers` endpoint.** v0.0.2 declared the
+  endpoint in the actor JSON-LD but never registered a handler;
+  Mastodon hit the URL, got Grav's HTML 404 page, and rendered
+  the profile as "0 followers" even when followers existed
+  locally. The new `FollowersCollectionController` mirrors the
+  `OutboxController` shape: bare `OrderedCollection` summary by
+  default, paginated `OrderedCollectionPage` (20 per page) under
+  `?page=true&p=N`. `FollowerStore` gained `listForCollection()`
+  + `countForCollection()` to back it.
+- **`GET /activitypub/following` endpoint.** Same story —
+  declared but unimplemented. The new
+  `FollowingCollectionController` always responds with an empty
+  collection (v0.1 is broadcast-only; the local actor publishes,
+  never follows). The real implementation lands with the
+  multi-account work in v0.3+.
+- **Listing-page filter in `GravPageSource`.** v0.0.2 federated
+  the `/blog` index page itself as a "post" with empty body.
+  The new `isListingTemplate()` rejects pages whose Twig template
+  name is `blog`/`archive`/`listing`/`collection` — Grav-skeleton
+  convention for container pages. `hasNonEmptyContent()` is a
+  second-line defence: any page whose rendered HTML strips down
+  to whitespace is also dropped. Either check is sufficient to
+  flag a listing.
+- **`ActivityTransformer` builds `summary` + `attachment`.**
+  Mastodon's article rendering reaches for `summary` (used as
+  the post excerpt / preview-card description) and `attachment`
+  (used as the hero image). v0.0.2 emitted neither, so Mastodon
+  fell back to OpenGraph parsing on the public URL — which
+  usually doesn't pick a sensible excerpt or thumbnail.
+  `buildSummary()` extracts the first `<p>…</p>` (or the whole
+  body if there's no `<p>`), strips HTML, decodes entities,
+  collapses whitespace, caps at 200 chars. `buildAttachments()`
+  walks `<img src=…>` references; absolute and root-relative
+  URLs become AS 2.0 `Document` objects with `mediaType`
+  inferred from the file extension and `name` set from `alt`
+  when present. Relative paths get dropped (peers can't fetch
+  `./images/foo.jpg`).
+
 ### Fixed (v0.0.2 — first production-deploy bug-fix)
 
 The first attempt at deploying v0.0.1 on a Grav 1.7 production site

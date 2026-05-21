@@ -70,6 +70,126 @@ final class ActivityTransformerTest extends TestCase
         self::assertSame($create, $decoded);
     }
 
+    public function testSummaryDerivesFromFirstParagraph(): void
+    {
+        $page = $this->pageWith('<p>First paragraph.</p><p>Second paragraph.</p>');
+        $object = $this->transformer()->transformObject($page, true);
+
+        self::assertSame('First paragraph.', $object['summary']);
+    }
+
+    public function testSummaryStripsHtmlAndDecodesEntities(): void
+    {
+        $page = $this->pageWith('<p>Hello <strong>&amp; goodbye</strong>.</p>');
+        $object = $this->transformer()->transformObject($page, true);
+
+        self::assertSame('Hello & goodbye.', $object['summary']);
+    }
+
+    public function testSummaryCapsAtTwoHundredChars(): void
+    {
+        // 50 × 5 = 250 chars before truncation.
+        $long = str_repeat('lorem', 50);
+        $page = $this->pageWith('<p>' . $long . '</p>');
+        $object = $this->transformer()->transformObject($page, true);
+
+        self::assertArrayHasKey('summary', $object);
+        self::assertSame(200, mb_strlen($object['summary']));
+        self::assertStringEndsWith('…', $object['summary']);
+    }
+
+    public function testSummaryFallsBackToFullBodyWhenNoParagraph(): void
+    {
+        $page = $this->pageWith('Plain text with no &lt;p&gt; tag.');
+        $object = $this->transformer()->transformObject($page, true);
+
+        self::assertSame('Plain text with no <p> tag.', $object['summary']);
+    }
+
+    public function testSummaryAbsentForEmptyContent(): void
+    {
+        $page = $this->pageWith('');
+        $object = $this->transformer()->transformObject($page, true);
+
+        self::assertArrayNotHasKey('summary', $object);
+    }
+
+    public function testAttachmentExtractsAbsoluteImageUrls(): void
+    {
+        $page = $this->pageWith(
+            '<p>Look:</p><img src="https://cdn.example/a.jpg" alt="A photo">'
+            . '<img src="https://cdn.example/b.png">'
+        );
+        $object = $this->transformer()->transformObject($page, true);
+
+        self::assertArrayHasKey('attachment', $object);
+        self::assertCount(2, $object['attachment']);
+        self::assertSame('Document', $object['attachment'][0]['type']);
+        self::assertSame('image/jpeg', $object['attachment'][0]['mediaType']);
+        self::assertSame('https://cdn.example/a.jpg', $object['attachment'][0]['url']);
+        self::assertSame('A photo', $object['attachment'][0]['name']);
+        self::assertSame('image/png', $object['attachment'][1]['mediaType']);
+        self::assertArrayNotHasKey('name', $object['attachment'][1]);
+    }
+
+    public function testAttachmentRewritesRootRelativeUrls(): void
+    {
+        $page = $this->pageWith('<img src="/uploads/x.webp">');
+        $object = $this->transformer()->transformObject($page, true);
+
+        self::assertCount(1, $object['attachment']);
+        self::assertSame('https://blog.local/uploads/x.webp', $object['attachment'][0]['url']);
+        self::assertSame('image/webp', $object['attachment'][0]['mediaType']);
+    }
+
+    public function testAttachmentSkipsBareRelativeUrls(): void
+    {
+        // Peers can't reach `./images/foo.jpg` — drop it instead of
+        // emitting a broken Document.
+        $page = $this->pageWith('<img src="./images/foo.jpg">');
+        $object = $this->transformer()->transformObject($page, true);
+
+        self::assertArrayNotHasKey('attachment', $object);
+    }
+
+    public function testAttachmentDeduplicatesIdenticalUrls(): void
+    {
+        $page = $this->pageWith(
+            '<img src="https://cdn.example/a.jpg"><img src="https://cdn.example/a.jpg">'
+        );
+        $object = $this->transformer()->transformObject($page, true);
+
+        self::assertCount(1, $object['attachment']);
+    }
+
+    public function testAttachmentMediaTypeFromExtension(): void
+    {
+        $page = $this->pageWith(
+            '<img src="https://cdn.example/a.gif">'
+            . '<img src="https://cdn.example/b.svg">'
+            . '<img src="https://cdn.example/c.avif">'
+            . '<img src="https://cdn.example/d.bin">'
+        );
+        $object = $this->transformer()->transformObject($page, true);
+
+        self::assertSame('image/gif', $object['attachment'][0]['mediaType']);
+        self::assertSame('image/svg+xml', $object['attachment'][1]['mediaType']);
+        self::assertSame('image/avif', $object['attachment'][2]['mediaType']);
+        self::assertSame('application/octet-stream', $object['attachment'][3]['mediaType']);
+    }
+
+    private function pageWith(string $html): PageRecord
+    {
+        return new PageRecord(
+            route:       '/blog/example',
+            url:         'https://blog.local/blog/example',
+            title:       'Example',
+            contentHtml: $html,
+            published:   new DateTimeImmutable('2026-05-01T10:00:00Z'),
+            modified:    new DateTimeImmutable('2026-05-02T10:00:00Z'),
+        );
+    }
+
     private function transformer(): ActivityTransformer
     {
         return new ActivityTransformer(

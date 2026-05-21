@@ -98,7 +98,54 @@ final class GravPageSource implements PageSource
             return false;
         }
         $route = (string) $page->route();
-        return $this->routeUnderPrefix($route, $prefix);
+        if (!$this->routeUnderPrefix($route, $prefix)) {
+            return false;
+        }
+        // v0.0.3: skip pages that look like blog INDEX pages instead of
+        // actual posts. The original v0.0.2 path-filter alone matched
+        // both `/blog/<post>` and `/blog` (the listing page itself),
+        // which then got federated as a "post" with empty body. We
+        // filter on two signals — either is sufficient to flag a page
+        // as a listing.
+        //
+        //  1. Twig template names that conventionally render
+        //     collections, not single items (`blog`, `listing`,
+        //     `archive`, …).
+        //  2. The rendered content body is empty (after HTML strip).
+        //     Listing pages typically have only their frontmatter
+        //     directives, no actual prose.
+        if ($this->isListingTemplate($page)) {
+            return false;
+        }
+        if (!$this->hasNonEmptyContent($page)) {
+            return false;
+        }
+        return true;
+    }
+
+    private function isListingTemplate(PageInterface $page): bool
+    {
+        $template = '';
+        if (method_exists($page, 'template')) {
+            $template = (string) $page->template();
+        }
+        $template = strtolower($template);
+        // Grav-skeleton conventions: `blog` / `archive` / `listing`
+        // are containers, `item` / `default` / `post` are content.
+        return \in_array($template, ['blog', 'archive', 'listing', 'collection'], true);
+    }
+
+    private function hasNonEmptyContent(PageInterface $page): bool
+    {
+        $html = '';
+        try {
+            $html = (string) $page->content();
+        } catch (\Throwable) {
+            return false;
+        }
+        $text = (string) preg_replace('/<[^>]*>/', '', $html);
+        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        return trim($text) !== '';
     }
 
     private function buildRecord(PageInterface $page): PageRecord

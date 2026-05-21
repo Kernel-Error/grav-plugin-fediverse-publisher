@@ -60,11 +60,15 @@ final class FollowerStore
 
     public function markAccepted(string $actorUrl): void
     {
+        // String literals in SQL must be SINGLE-quoted — see the note
+        // at the top of OutboundQueue.php. SQLite under PHP 8.3 reads
+        // double-quoted tokens as identifiers, which crashes with
+        // "no such column: accepted".
         $stmt = $this->pdo->prepare(
-            'UPDATE followers
-                SET status     = "accepted",
+            "UPDATE followers
+                SET status     = 'accepted',
                     updated_at = :ts
-              WHERE actor_url = :a'
+              WHERE actor_url = :a"
         );
         $stmt->execute([':a' => $actorUrl, ':ts' => time()]);
     }
@@ -89,11 +93,39 @@ final class FollowerStore
     public function listActive(): array
     {
         $stmt = $this->pdo->query(
-            'SELECT actor_url, inbox_url, shared_inbox_url, status
+            "SELECT actor_url, inbox_url, shared_inbox_url, status
                FROM followers
-              WHERE status != "stale"
-              ORDER BY actor_url'
+              WHERE status != 'stale'
+              ORDER BY actor_url"
         );
         return $stmt !== false ? $stmt->fetchAll() : [];
+    }
+
+    /**
+     * Page of accepted-and-pending follower actor URLs, oldest-first.
+     * Used by the followers endpoint to publish an OrderedCollection.
+     *
+     * @return list<string>
+     */
+    public function listForCollection(int $limit, int $offset): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT actor_url FROM followers
+              WHERE status != 'stale'
+              ORDER BY created_at ASC, actor_url ASC
+              LIMIT :lim OFFSET :off"
+        );
+        $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
+        $stmt->bindValue(':off', $offset, PDO::PARAM_INT);
+        $stmt->execute();
+        return array_map('strval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+    }
+
+    public function countForCollection(): int
+    {
+        $stmt = $this->pdo->query(
+            "SELECT COUNT(*) FROM followers WHERE status != 'stale'"
+        );
+        return $stmt !== false ? (int) $stmt->fetchColumn() : 0;
     }
 }
