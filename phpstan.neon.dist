@@ -9,3 +9,13 @@ parameters:
     treatPhpDocTypesAsCertain: false
     parallel:
         maximumNumberOfProcesses: 4
+    ignoreErrors:
+        # Grav core isn't on Packagist as a library (it ships as a
+        # distribution), so PHPStan can't resolve its types when
+        # analysing the plugin in isolation. The Grav-coupled classes
+        # (the plugin entry, GravPageSource) are integration-tested
+        # against a real Grav container; the unit tests cover the
+        # framework-agnostic core via PageSource / ServerRequestInterface.
+        - '#Grav\\Common\\#'
+        - '#Grav\\Console\\#'
+        - '#RocketTheme\\Toolbox\\Event\\#'
