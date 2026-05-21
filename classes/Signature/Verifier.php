@@ -184,6 +184,9 @@ final class Verifier
      *   - `(request-target)` is the pseudo-header
      *       `<lowercased method> <path[?query]>`
      */
+    /**
+     * @param list<string> $headerList Lowercased header names — order matters per Cavage.
+     */
     private function buildSigningString(ServerRequestInterface $request, array $headerList): string
     {
         $lines = [];

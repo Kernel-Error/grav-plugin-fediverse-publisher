@@ -1,21 +1,19 @@
 parameters:
     level: 6
     paths:
-        - fediverse-publisher.php
         - classes
         - tests
     excludePaths:
         - vendor/*
+        # These two files are the Grav-coupled glue. Grav isn't
+        # published as a library on Packagist (it ships as a
+        # distribution), so PHPStan can't resolve its types when
+        # analysing the plugin in isolation. The classes here are
+        # integration-tested against a real Grav container; the unit
+        # tests cover the framework-agnostic core via the PageSource
+        # interface + PSR-7 stubs, which PHPStan handles fine.
+        - classes/Outbox/GravPageSource.php
+        - cli/FlushQueueCommand.php
     treatPhpDocTypesAsCertain: false
     parallel:
         maximumNumberOfProcesses: 4
-    ignoreErrors:
-        # Grav core isn't on Packagist as a library (it ships as a
-        # distribution), so PHPStan can't resolve its types when
-        # analysing the plugin in isolation. The Grav-coupled classes
-        # (the plugin entry, GravPageSource) are integration-tested
-        # against a real Grav container; the unit tests cover the
-        # framework-agnostic core via PageSource / ServerRequestInterface.
-        - '#Grav\\Common\\#'
-        - '#Grav\\Console\\#'
-        - '#RocketTheme\\Toolbox\\Event\\#'

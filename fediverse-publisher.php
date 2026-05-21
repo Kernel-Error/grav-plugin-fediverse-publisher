@@ -339,8 +339,7 @@ class FediversePublisherPlugin extends Plugin
             'http_errors'     => false,
             'allow_redirects' => false,
         ]);
-        $username   = $this->configStr($configArr, 'actor.username');
-        $allowCidrs = $configArr['federation']['dev_allow_cidrs'] ?? [];
+        $username = $this->configStr($configArr, 'actor.username');
 
         return new Dispatcher(
             queue:            $queue,
@@ -350,13 +349,9 @@ class FediversePublisherPlugin extends Plugin
             retryPolicy:      new RetryPolicy(),
             classifier:       new FailureClassifier(),
             http:             $http,
-            clock:            $clock,
             log:              $this->resolveLogger(),
             localActorUrl:    $hostBase . '/activitypub/actor',
             localKeyUsername: $username,
-            allowedReservedCidrs: \is_array($allowCidrs)
-                ? \array_values(\array_filter($allowCidrs, '\\is_string'))
-                : [],
         );
     }
 

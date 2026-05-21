@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Grav\Plugin\FediversePublisher\Push;
 
 use Grav\Plugin\FediversePublisher\Keys\KeyStore;
-use Grav\Plugin\FediversePublisher\Signature\Clock;
 use Grav\Plugin\FediversePublisher\Signature\RequestSigner;
 use Grav\Plugin\FediversePublisher\Storage\FollowerStore;
 use GuzzleHttp\ClientInterface;
@@ -44,13 +43,20 @@ final class Dispatcher
         private readonly RetryPolicy $retryPolicy,
         private readonly FailureClassifier $classifier,
         private readonly ClientInterface $http,
-        private readonly Clock $clock,
         private readonly LoggerInterface $log,
         private readonly string $localActorUrl,
         private readonly string $localKeyUsername,         // matches KeyStore key file
-        /** @var list<string> CIDR allow-list for SSRF block bypass (dev only) */
-        private readonly array $allowedReservedCidrs = [],
     ) {
+        // Note: a Clock was originally threaded through here for future
+        // delivery-time decisions (e.g., per-host scheduling) but those
+        // landed on RetryPolicy/Queue instead. Re-add when the
+        // dispatcher itself needs a clock.
+        //
+        // The KeyFetcher's allowedReservedCidrs (dev-only SSRF bypass)
+        // lives on the verifier path. The push side never resolves
+        // arbitrary external URLs — it only POSTs to inbox URLs that
+        // came from a previously-verified actor doc — so no allow-list
+        // is needed here.
     }
 
     /**
