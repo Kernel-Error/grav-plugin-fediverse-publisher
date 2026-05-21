@@ -31,13 +31,13 @@ final class PageRecordTest extends TestCase
     public function testCharCountStripsHtml(): void
     {
         $page = $this->make(contentHtml: '<p>Hello <strong>world</strong>.</p>');
-        self::assertSame(\mb_strlen('Hello world.'), $page->charCount());
+        self::assertSame(mb_strlen('Hello world.'), $page->charCount());
     }
 
     public function testCharCountDecodesEntities(): void
     {
         $page = $this->make(contentHtml: '<p>caf&eacute; &amp; bar</p>');
-        self::assertSame(\mb_strlen('café & bar'), $page->charCount());
+        self::assertSame(mb_strlen('café & bar'), $page->charCount());
     }
 
     public function testCharCountIsZeroOnEmptyContent(): void

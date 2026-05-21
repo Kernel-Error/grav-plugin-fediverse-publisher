@@ -30,7 +30,7 @@ final class FailureClassifierTest extends TestCase
         yield '401 unauthorized' => [401, DeliveryOutcome::Permanent];
         yield '403 forbidden'    => [403, DeliveryOutcome::Permanent];
         yield '404 not found'    => [404, DeliveryOutcome::Permanent];
-        yield '422 unprocessable'=> [422, DeliveryOutcome::Permanent];
+        yield '422 unprocessable' => [422, DeliveryOutcome::Permanent];
         yield '429 rate-limited' => [429, DeliveryOutcome::Transient];
         yield '500 server error' => [500, DeliveryOutcome::Transient];
         yield '502 bad gateway'  => [502, DeliveryOutcome::Transient];

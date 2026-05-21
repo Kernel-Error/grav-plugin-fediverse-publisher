@@ -24,7 +24,7 @@ final class NodeInfoDiscoveryControllerTest extends TestCase
         self::assertSame('application/json; charset=utf-8', $response->getHeaderLine('Content-Type'));
         self::assertSame('public, max-age=300', $response->getHeaderLine('Cache-Control'));
 
-        $body = \json_decode((string) $response->getBody(), true);
+        $body = json_decode((string) $response->getBody(), true);
         self::assertArrayHasKey('links', $body);
         self::assertCount(1, $body['links']);
         self::assertSame('http://nodeinfo.diaspora.software/ns/schema/2.0', $body['links'][0]['rel']);

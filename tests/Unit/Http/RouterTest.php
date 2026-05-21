@@ -15,7 +15,7 @@ final class RouterTest extends TestCase
     public function testGetRouteMatches(): void
     {
         $router = new Router();
-        $router->get('/foo', fn() => new Response(200, [], 'hit'));
+        $router->get('/foo', fn () => new Response(200, [], 'hit'));
 
         $response = $router->dispatch(new ServerRequest('GET', '/foo'));
 
@@ -27,7 +27,7 @@ final class RouterTest extends TestCase
     public function testNoMatchReturnsNull(): void
     {
         $router = new Router();
-        $router->get('/foo', fn() => new Response(200));
+        $router->get('/foo', fn () => new Response(200));
 
         $response = $router->dispatch(new ServerRequest('GET', '/bar'));
         self::assertNull($response);
@@ -36,7 +36,7 @@ final class RouterTest extends TestCase
     public function testWrongMethodReturns405WithAllowHeader(): void
     {
         $router = new Router();
-        $router->get('/foo', fn() => new Response(200));
+        $router->get('/foo', fn () => new Response(200));
 
         $response = $router->dispatch(new ServerRequest('POST', '/foo'));
 
@@ -48,21 +48,21 @@ final class RouterTest extends TestCase
     public function testMultipleMethodsOnSamePathReportAllAllowed(): void
     {
         $router = new Router();
-        $router->get('/foo',  fn() => new Response(200));
-        $router->post('/foo', fn() => new Response(201));
+        $router->get('/foo', fn () => new Response(200));
+        $router->post('/foo', fn () => new Response(201));
 
         $response = $router->dispatch(new ServerRequest('DELETE', '/foo'));
 
         self::assertInstanceOf(ResponseInterface::class, $response);
         self::assertSame(405, $response->getStatusCode());
-        self::assertStringContainsString('GET',  $response->getHeaderLine('Allow'));
+        self::assertStringContainsString('GET', $response->getHeaderLine('Allow'));
         self::assertStringContainsString('POST', $response->getHeaderLine('Allow'));
     }
 
     public function testHeadIsAnsweredFromGetWithEmptyBody(): void
     {
         $router = new Router();
-        $router->get('/foo', fn() => new Response(200, ['X-Foo' => 'bar'], 'hello world'));
+        $router->get('/foo', fn () => new Response(200, ['X-Foo' => 'bar'], 'hello world'));
 
         $response = $router->dispatch(new ServerRequest('HEAD', '/foo'));
 
@@ -76,7 +76,7 @@ final class RouterTest extends TestCase
     public function testMethodMatchingIsCaseInsensitive(): void
     {
         $router = new Router();
-        $router->get('/foo', fn() => new Response(200));
+        $router->get('/foo', fn () => new Response(200));
 
         $response = $router->dispatch(new ServerRequest('get', '/foo'));
         self::assertNotNull($response);

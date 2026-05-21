@@ -60,7 +60,7 @@ final class PreflightCheck
 
     private function checkDocumentRoot(): void
     {
-        $base = \trim($this->baseUrlPath, '/');
+        $base = trim($this->baseUrlPath, '/');
         if ($base === '') {
             return;
         }

@@ -16,16 +16,16 @@ final class ActorControllerTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->tmpDir = \sys_get_temp_dir() . '/fpub-actorc-' . \bin2hex(\random_bytes(6));
+        $this->tmpDir = sys_get_temp_dir() . '/fpub-actorc-' . bin2hex(random_bytes(6));
     }
 
     protected function tearDown(): void
     {
-        if (\is_dir($this->tmpDir)) {
-            foreach ((array) \glob($this->tmpDir . '/*') as $f) {
-                \unlink($f);
+        if (is_dir($this->tmpDir)) {
+            foreach ((array) glob($this->tmpDir . '/*') as $f) {
+                unlink($f);
             }
-            \rmdir($this->tmpDir);
+            rmdir($this->tmpDir);
         }
     }
 
@@ -39,7 +39,7 @@ final class ActorControllerTest extends TestCase
         self::assertSame('application/activity+json; charset=utf-8', $response->getHeaderLine('Content-Type'));
         self::assertSame('no-store, max-age=0', $response->getHeaderLine('Cache-Control'));
 
-        $body = \json_decode((string) $response->getBody(), true);
+        $body = json_decode((string) $response->getBody(), true);
         self::assertIsArray($body);
         self::assertSame('Person', $body['type']);
         self::assertSame('blog', $body['preferredUsername']);
@@ -58,12 +58,12 @@ final class ActorControllerTest extends TestCase
         $controller = $this->controller(['actor' => ['username' => 'blog']]);
         $response = $controller->handle(new ServerRequest('GET', '/activitypub/actor'));
 
-        $body = \json_decode((string) $response->getBody(), true);
+        $body = json_decode((string) $response->getBody(), true);
         $pem = $body['publicKey']['publicKeyPem'];
-        $key = \openssl_pkey_get_public($pem);
+        $key = openssl_pkey_get_public($pem);
 
         self::assertNotFalse($key, 'PEM in actor JSON must be a valid public key');
-        $details = \openssl_pkey_get_details($key);
+        $details = openssl_pkey_get_details($key);
         self::assertSame(2048, $details['bits']);
     }
 

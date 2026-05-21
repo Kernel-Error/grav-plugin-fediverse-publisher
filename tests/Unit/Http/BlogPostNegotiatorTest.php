@@ -52,17 +52,17 @@ final class BlogPostNegotiatorTest extends TestCase
         self::assertSame(200, $response->getStatusCode());
         self::assertSame('application/activity+json; charset=utf-8', $response->getHeaderLine('Content-Type'));
 
-        $body = \json_decode((string) $response->getBody(), true);
+        $body = json_decode((string) $response->getBody(), true);
         self::assertSame('Note', $body['type']);
         self::assertArrayHasKey('@context', $body, 'Bare object responses MUST carry @context');
     }
 
     public function testBuildResponseEmitsArticleForLongContent(): void
     {
-        $long = '<p>' . \str_repeat('lorem ipsum ', 200) . '</p>';
+        $long = '<p>' . str_repeat('lorem ipsum ', 200) . '</p>';
         $response = $this->negotiator(noteThreshold: 100)->buildResponse($this->page($long));
 
-        $body = \json_decode((string) $response->getBody(), true);
+        $body = json_decode((string) $response->getBody(), true);
         self::assertSame('Article', $body['type']);
         self::assertSame('Example', $body['name']);
     }

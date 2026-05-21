@@ -22,7 +22,7 @@ final class OutboxControllerTest extends TestCase
         self::assertSame(200, $response->getStatusCode());
         self::assertSame('application/activity+json; charset=utf-8', $response->getHeaderLine('Content-Type'));
 
-        $doc = \json_decode((string) $response->getBody(), true);
+        $doc = json_decode((string) $response->getBody(), true);
         self::assertSame('OrderedCollection', $doc['type']);
         self::assertSame('https://blog.local/activitypub/outbox', $doc['id']);
         self::assertSame(0, $doc['totalItems']);
@@ -32,7 +32,7 @@ final class OutboxControllerTest extends TestCase
     public function testCollectionTotalItemsReflectsSourceSize(): void
     {
         $controller = $this->controller($this->makePages(5));
-        $doc = \json_decode((string) $controller->handle(new ServerRequest('GET', '/activitypub/outbox'))->getBody(), true);
+        $doc = json_decode((string) $controller->handle(new ServerRequest('GET', '/activitypub/outbox'))->getBody(), true);
 
         self::assertSame(5, $doc['totalItems']);
         self::assertSame('https://blog.local/activitypub/outbox?page=true&p=1', $doc['last']);
@@ -45,7 +45,7 @@ final class OutboxControllerTest extends TestCase
             (new ServerRequest('GET', '/activitypub/outbox'))->withQueryParams(['page' => 'true'])
         );
 
-        $doc = \json_decode((string) $response->getBody(), true);
+        $doc = json_decode((string) $response->getBody(), true);
         self::assertSame('OrderedCollectionPage', $doc['type']);
         self::assertSame('https://blog.local/activitypub/outbox?page=true&p=1', $doc['id']);
         self::assertSame('https://blog.local/activitypub/outbox', $doc['partOf']);
@@ -57,7 +57,7 @@ final class OutboxControllerTest extends TestCase
     {
         $controller = $this->controller($this->makePages(50));   // 3 pages at 20/page
 
-        $page2 = \json_decode((string) $controller->handle(
+        $page2 = json_decode((string) $controller->handle(
             (new ServerRequest('GET', '/activitypub/outbox'))->withQueryParams(['page' => 'true', 'p' => '2'])
         )->getBody(), true);
 
@@ -69,7 +69,7 @@ final class OutboxControllerTest extends TestCase
     public function testFirstPageHasNoPrev(): void
     {
         $controller = $this->controller($this->makePages(50));
-        $doc = \json_decode((string) $controller->handle(
+        $doc = json_decode((string) $controller->handle(
             (new ServerRequest('GET', '/activitypub/outbox'))->withQueryParams(['page' => 'true', 'p' => '1'])
         )->getBody(), true);
 
@@ -80,7 +80,7 @@ final class OutboxControllerTest extends TestCase
     public function testLastPageHasNoNext(): void
     {
         $controller = $this->controller($this->makePages(50));
-        $doc = \json_decode((string) $controller->handle(
+        $doc = json_decode((string) $controller->handle(
             (new ServerRequest('GET', '/activitypub/outbox'))->withQueryParams(['page' => 'true', 'p' => '3'])
         )->getBody(), true);
 
@@ -93,13 +93,13 @@ final class OutboxControllerTest extends TestCase
         $controller = $this->controller($this->makePages(5));
 
         // page 0 → coerced to 1
-        $doc0 = \json_decode((string) $controller->handle(
+        $doc0 = json_decode((string) $controller->handle(
             (new ServerRequest('GET', '/activitypub/outbox'))->withQueryParams(['page' => 'true', 'p' => '0'])
         )->getBody(), true);
         self::assertSame('https://blog.local/activitypub/outbox?page=true&p=1', $doc0['id']);
 
         // page 999 → coerced to last page (only 1 page exists for 5 items)
-        $doc999 = \json_decode((string) $controller->handle(
+        $doc999 = json_decode((string) $controller->handle(
             (new ServerRequest('GET', '/activitypub/outbox'))->withQueryParams(['page' => 'true', 'p' => '999'])
         )->getBody(), true);
         self::assertSame('https://blog.local/activitypub/outbox?page=true&p=1', $doc999['id']);
@@ -108,14 +108,14 @@ final class OutboxControllerTest extends TestCase
     public function testArticleThresholdAppliesPerItem(): void
     {
         $short = $this->page('short', '<p>hi</p>');
-        $long  = $this->page('long', '<p>' . \str_repeat('lorem ipsum ', 200) . '</p>');
+        $long  = $this->page('long', '<p>' . str_repeat('lorem ipsum ', 200) . '</p>');
 
         $controller = $this->controller([$short, $long], noteThreshold: 100);
-        $page = \json_decode((string) $controller->handle(
+        $page = json_decode((string) $controller->handle(
             (new ServerRequest('GET', '/activitypub/outbox'))->withQueryParams(['page' => 'true'])
         )->getBody(), true);
 
-        $types = \array_map(static fn(array $a): string => $a['object']['type'], $page['orderedItems']);
+        $types = array_map(static fn (array $a): string => $a['object']['type'], $page['orderedItems']);
         self::assertContains('Note', $types);
         self::assertContains('Article', $types);
     }
@@ -125,14 +125,21 @@ final class OutboxControllerTest extends TestCase
      */
     private function controller(array $pages, int $noteThreshold = 1000): OutboxController
     {
-        $source = new class($pages) implements PageSource {
+        $source = new class ($pages) implements PageSource {
             /** @param list<PageRecord> $pages */
-            public function __construct(private array $pages) {}
-            public function listFederatable(): array { return $this->pages; }
+            public function __construct(private array $pages)
+            {
+            }
+            public function listFederatable(): array
+            {
+                return $this->pages;
+            }
             public function findByRoute(string $route): ?PageRecord
             {
                 foreach ($this->pages as $p) {
-                    if ($p->route === $route) return $p;
+                    if ($p->route === $route) {
+                        return $p;
+                    }
                 }
                 return null;
             }

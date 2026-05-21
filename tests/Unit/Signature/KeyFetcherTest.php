@@ -6,14 +6,14 @@ namespace Grav\Plugin\FediversePublisher\Tests\Unit\Signature;
 
 use DateTimeImmutable;
 use Grav\Plugin\FediversePublisher\Signature\FrozenClock;
-use Grav\Plugin\FediversePublisher\Signature\KeyFetchException;
 use Grav\Plugin\FediversePublisher\Signature\KeyFetcher;
+use Grav\Plugin\FediversePublisher\Signature\KeyFetchException;
 use GuzzleHttp\Client;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Psr7\Response;
-use PHPUnit\Framework\TestCase;
 use phpseclib3\Crypt\RSA;
+use PHPUnit\Framework\TestCase;
 
 final class KeyFetcherTest extends TestCase
 {
@@ -27,7 +27,7 @@ final class KeyFetcherTest extends TestCase
 
     public function testHappyPath(): void
     {
-        $body = (string) \json_encode([
+        $body = (string) json_encode([
             'id'        => 'https://blog.local/activitypub/actor',
             'inbox'     => 'https://blog.local/activitypub/inbox',
             'publicKey' => [
@@ -93,7 +93,7 @@ final class KeyFetcherTest extends TestCase
 
     public function testKeyIdMismatchRejected(): void
     {
-        $body = (string) \json_encode([
+        $body = (string) json_encode([
             'id'    => 'https://blog.local/actor',
             'inbox' => 'https://blog.local/inbox',
             'publicKey' => [
@@ -112,7 +112,7 @@ final class KeyFetcherTest extends TestCase
 
     public function testNonRsaPemRejected(): void
     {
-        $body = (string) \json_encode([
+        $body = (string) json_encode([
             'id'    => 'https://blog.local/actor',
             'inbox' => 'https://blog.local/inbox',
             'publicKey' => [
@@ -133,7 +133,7 @@ final class KeyFetcherTest extends TestCase
         // GoToSocial 0.21 returns this shape when authorized-fetch is
         // on and the request is unsigned: id (= owner) + publicKey
         // block, but no inbox. v0.1 falls back to <owner>/inbox.
-        $body = (string) \json_encode([
+        $body = (string) json_encode([
             'id' => 'https://blog.local/actor',
             'publicKey' => [
                 'id'           => 'https://blog.local/actor#main-key',
@@ -152,7 +152,7 @@ final class KeyFetcherTest extends TestCase
 
     public function testAllowListPunchesThroughReservedRange(): void
     {
-        $body = (string) \json_encode([
+        $body = (string) json_encode([
             'id'        => 'https://blog.local/actor',
             'inbox'     => 'https://blog.local/inbox',
             'publicKey' => [
@@ -203,6 +203,6 @@ final class KeyFetcherTest extends TestCase
         $http = new Client(['handler' => HandlerStack::create($mock), 'http_errors' => false]);
         $clock = new FrozenClock(new DateTimeImmutable('2026-05-21T12:00:00Z'));
 
-        return new KeyFetcher($http, $clock, static fn(string $h) => $ips, $allowCidrs);
+        return new KeyFetcher($http, $clock, static fn (string $h) => $ips, $allowCidrs);
     }
 }

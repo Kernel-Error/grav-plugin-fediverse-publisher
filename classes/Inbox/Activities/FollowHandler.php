@@ -83,7 +83,7 @@ final class FollowHandler
     {
         $followId   = (string) ($follow['id'] ?? '');
         $followActor = (string) ($follow['actor'] ?? '');
-        $acceptId = $this->localActorUrl . '#accept-' . \hash('sha256', $followId);
+        $acceptId = $this->localActorUrl . '#accept-' . hash('sha256', $followId);
 
         return [
             '@context' => 'https://www.w3.org/ns/activitystreams',

@@ -44,16 +44,16 @@ final class BlogPostNegotiator
             return false;
         }
 
-        $lower = \strtolower($acceptHeader);
+        $lower = strtolower($acceptHeader);
 
-        if (\str_contains($lower, 'application/activity+json')) {
+        if (str_contains($lower, 'application/activity+json')) {
             return true;
         }
 
         // application/ld+json is only AP when the profile parameter
         // points to the AS 2.0 namespace.
-        if (\str_contains($lower, 'application/ld+json')
-            && \str_contains($lower, 'profile="https://www.w3.org/ns/activitystreams"')) {
+        if (str_contains($lower, 'application/ld+json')
+            && str_contains($lower, 'profile="https://www.w3.org/ns/activitystreams"')) {
             return true;
         }
 
@@ -72,7 +72,7 @@ final class BlogPostNegotiator
                 'Cache-Control' => 'no-store, max-age=0',
                 'Vary'          => 'Accept',
             ],
-            (string) \json_encode($object, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            (string) json_encode($object, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
         );
     }
 }

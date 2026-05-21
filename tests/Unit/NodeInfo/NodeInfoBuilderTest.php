@@ -66,10 +66,10 @@ final class NodeInfoBuilderTest extends TestCase
     public function testJsonEncodableWithoutLosingFields(): void
     {
         $doc = $this->builder()->nodeInfo20();
-        $json = \json_encode($doc, JSON_UNESCAPED_SLASHES);
+        $json = json_encode($doc, JSON_UNESCAPED_SLASHES);
         self::assertIsString($json);
 
-        $decoded = \json_decode($json, true);
+        $decoded = json_decode($json, true);
         self::assertSame($doc, $decoded);
     }
 

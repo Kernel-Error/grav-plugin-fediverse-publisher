@@ -36,7 +36,7 @@ final class FollowerStore
 
     public function upsertPending(string $actorUrl, string $inboxUrl, ?string $sharedInboxUrl): void
     {
-        $now = \time();
+        $now = time();
         $stmt = $this->pdo->prepare(
             'INSERT INTO followers
                 (actor_url, inbox_url, shared_inbox_url, status, created_at, updated_at)
@@ -66,7 +66,7 @@ final class FollowerStore
                     updated_at = :ts
               WHERE actor_url = :a'
         );
-        $stmt->execute([':a' => $actorUrl, ':ts' => \time()]);
+        $stmt->execute([':a' => $actorUrl, ':ts' => time()]);
     }
 
     public function remove(string $actorUrl): bool

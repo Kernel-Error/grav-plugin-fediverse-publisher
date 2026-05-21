@@ -197,7 +197,7 @@ final class Verifier
                 if ($uri->getQuery() !== '') {
                     $target .= '?' . $uri->getQuery();
                 }
-                $lines[] = '(request-target): ' . \strtolower($request->getMethod()) . ' ' . $target;
+                $lines[] = '(request-target): ' . strtolower($request->getMethod()) . ' ' . $target;
                 continue;
             }
             // Some setups (Caddy `php_fastcgi`) deliver the same header
@@ -208,6 +208,6 @@ final class Verifier
             $values = $request->getHeader($name);
             $lines[] = $name . ': ' . ($values[0] ?? '');
         }
-        return \implode("\n", $lines);
+        return implode("\n", $lines);
     }
 }

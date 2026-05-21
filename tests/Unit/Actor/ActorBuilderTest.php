@@ -14,16 +14,16 @@ final class ActorBuilderTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->tmpDir = \sys_get_temp_dir() . '/fpub-actor-' . \bin2hex(\random_bytes(6));
+        $this->tmpDir = sys_get_temp_dir() . '/fpub-actor-' . bin2hex(random_bytes(6));
     }
 
     protected function tearDown(): void
     {
-        if (\is_dir($this->tmpDir)) {
-            foreach ((array) \glob($this->tmpDir . '/*') as $f) {
-                \unlink($f);
+        if (is_dir($this->tmpDir)) {
+            foreach ((array) glob($this->tmpDir . '/*') as $f) {
+                unlink($f);
             }
-            \rmdir($this->tmpDir);
+            rmdir($this->tmpDir);
         }
     }
 
@@ -51,7 +51,7 @@ final class ActorBuilderTest extends TestCase
         self::assertSame('blog', $doc['preferredUsername']);
         self::assertSame('My Blog', $doc['name']);
         self::assertSame('https://blog.local/activitypub/actor', $doc['id']);
-        self::assertSame('https://blog.local/activitypub/inbox',  $doc['inbox']);
+        self::assertSame('https://blog.local/activitypub/inbox', $doc['inbox']);
         self::assertSame('https://blog.local/activitypub/outbox', $doc['outbox']);
         self::assertSame('https://blog.local/activitypub/followers', $doc['followers']);
         self::assertSame('https://blog.local/activitypub/following', $doc['following']);
@@ -81,7 +81,7 @@ final class ActorBuilderTest extends TestCase
 
         self::assertArrayHasKey('publicKey', $doc);
         self::assertSame('https://blog.local/activitypub/actor#main-key', $doc['publicKey']['id']);
-        self::assertSame('https://blog.local/activitypub/actor',          $doc['publicKey']['owner']);
+        self::assertSame('https://blog.local/activitypub/actor', $doc['publicKey']['owner']);
         self::assertStringContainsString('BEGIN PUBLIC KEY', $doc['publicKey']['publicKeyPem']);
     }
 
@@ -125,12 +125,12 @@ final class ActorBuilderTest extends TestCase
             'actor' => ['username' => 'blog'],
         ])->build();
 
-        $json = \json_encode($doc, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $json = json_encode($doc, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         self::assertIsString($json);
 
-        $decoded = \json_decode($json, true);
+        $decoded = json_decode($json, true);
         self::assertStringContainsString('BEGIN PUBLIC KEY', $decoded['publicKey']['publicKeyPem']);
-        self::assertStringContainsString('END PUBLIC KEY',   $decoded['publicKey']['publicKeyPem']);
+        self::assertStringContainsString('END PUBLIC KEY', $decoded['publicKey']['publicKeyPem']);
     }
 
     private function keys(): KeyStore

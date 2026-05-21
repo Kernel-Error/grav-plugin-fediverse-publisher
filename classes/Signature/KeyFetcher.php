@@ -55,7 +55,7 @@ final class KeyFetcher
         if ($canonicalKeyId === '') {
             throw new KeyFetchException('keyId rejected by canonicaliser');
         }
-        $parts = \parse_url($canonicalKeyId);
+        $parts = parse_url($canonicalKeyId);
         $host  = (string) ($parts['host'] ?? '');
         $port  = $parts['port'] ?? 443;
         if ($port !== 443) {
@@ -104,7 +104,7 @@ final class KeyFetcher
         }
 
         $payload = $this->readCapped($response);
-        $doc = \json_decode($payload, true);
+        $doc = json_decode($payload, true);
         if (!\is_array($doc)) {
             throw new KeyFetchException('actor doc not JSON object');
         }
@@ -172,7 +172,7 @@ final class KeyFetcher
         $this->validateRsaPem($pem);
 
         $owner       = Canonicalizer::ownerUrl((string) $pk['owner']);
-        $inboxUrl    = \rtrim($owner, '/') . '/inbox';
+        $inboxUrl    = rtrim($owner, '/') . '/inbox';
         $sharedInbox = $doc['endpoints']['sharedInbox'] ?? null;
 
         return new FetchedKey(
@@ -245,7 +245,7 @@ final class KeyFetcher
         }
         if (!\is_array($actorPk)
             || Canonicalizer::keyId((string) ($actorPk['id'] ?? '')) !== $canonicalKeyId) {
-            throw new KeyFetchException("actor doc does not reference the requested keyId");
+            throw new KeyFetchException('actor doc does not reference the requested keyId');
         }
 
         return new FetchedKey(
@@ -270,7 +270,7 @@ final class KeyFetcher
         if ($canonical === '') {
             throw new KeyFetchException('owner URL rejected by canonicaliser');
         }
-        $parts = \parse_url($canonical);
+        $parts = parse_url($canonical);
         $host  = (string) ($parts['host'] ?? '');
         $port  = $parts['port'] ?? 443;
         if ($port !== 443) {
@@ -311,7 +311,7 @@ final class KeyFetcher
             throw new KeyFetchException('owner unexpected content-type');
         }
         $payload = $this->readCapped($response);
-        $doc = \json_decode($payload, true);
+        $doc = json_decode($payload, true);
         if (!\is_array($doc)) {
             throw new KeyFetchException('owner doc not JSON object');
         }
@@ -340,11 +340,11 @@ final class KeyFetcher
         if ($pem === '') {
             throw new KeyFetchException('publicKeyPem is empty');
         }
-        $key = @\openssl_pkey_get_public($pem);
+        $key = @openssl_pkey_get_public($pem);
         if ($key === false) {
             throw new KeyFetchException('publicKeyPem failed openssl parse');
         }
-        $details = \openssl_pkey_get_details($key);
+        $details = openssl_pkey_get_details($key);
         if (!\is_array($details)) {
             throw new KeyFetchException('publicKeyPem details unavailable');
         }
@@ -366,14 +366,14 @@ final class KeyFetcher
         if ($this->isInAllowList($ip)) {
             return false;
         }
-        if (\filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-            return !\filter_var(
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return !filter_var(
                 $ip,
                 FILTER_VALIDATE_IP,
                 FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE,
             );
         }
-        if (\filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
             return $this->isReservedIpv6($ip);
         }
         return true;   // unknown family → reject
@@ -384,19 +384,19 @@ final class KeyFetcher
         if ($this->allowedReservedCidrs === []) {
             return false;
         }
-        if (!\filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
             return false;   // IPv6 allow-list not supported in v0.1
         }
-        $ipLong = \ip2long($ip);
+        $ipLong = ip2long($ip);
         if ($ipLong === false) {
             return false;
         }
         foreach ($this->allowedReservedCidrs as $cidr) {
-            if (!\is_string($cidr) || !\str_contains($cidr, '/')) {
+            if (!\is_string($cidr) || !str_contains($cidr, '/')) {
                 continue;
             }
-            [$net, $bits] = \explode('/', $cidr, 2);
-            $netLong = \ip2long($net);
+            [$net, $bits] = explode('/', $cidr, 2);
+            $netLong = ip2long($net);
             $bits    = (int) $bits;
             if ($netLong === false || $bits < 0 || $bits > 32) {
                 continue;
@@ -411,16 +411,16 @@ final class KeyFetcher
 
     private function isReservedIpv6(string $ip): bool
     {
-        $normalised = \strtolower($ip);
+        $normalised = strtolower($ip);
         if ($normalised === '::1' || $normalised === '::') {
             return true;
         }
 
         // Try IPv4-mapped / -compatible (e.g. ::ffff:10.0.0.1)
-        if (\str_starts_with($normalised, '::ffff:') || \str_starts_with($normalised, '::')) {
-            $tail = \substr($ip, \strrpos($ip, ':') + 1);
-            if (\filter_var($tail, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-                return !\filter_var(
+        if (str_starts_with($normalised, '::ffff:') || str_starts_with($normalised, '::')) {
+            $tail = substr($ip, strrpos($ip, ':') + 1);
+            if (filter_var($tail, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                return !filter_var(
                     $tail,
                     FILTER_VALIDATE_IP,
                     FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE,
@@ -430,7 +430,7 @@ final class KeyFetcher
 
         // Parse into bytes for prefix checks (link-local fe80::/10,
         // ULA fc00::/7, multicast ff00::/8).
-        $bytes = @\inet_pton($ip);
+        $bytes = @inet_pton($ip);
         if ($bytes === false || \strlen($bytes) !== 16) {
             return true;
         }

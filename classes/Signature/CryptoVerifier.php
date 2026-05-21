@@ -40,7 +40,7 @@ final class CryptoVerifier
         }
         $key = $key->withHash('sha256')->withPadding(RSA::SIGNATURE_PKCS1);
 
-        $signature = \base64_decode($signatureB64, true);
+        $signature = base64_decode($signatureB64, true);
         if ($signature === false) {
             return false;
         }

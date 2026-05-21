@@ -105,12 +105,12 @@ final class ActorBuilder
     private function str(string $dottedKey, string $default): string
     {
         $value = $this->config;
-        foreach (\explode('.', $dottedKey) as $segment) {
+        foreach (explode('.', $dottedKey) as $segment) {
             if (!\is_array($value) || !\array_key_exists($segment, $value)) {
                 return $default;
             }
             $value = $value[$segment];
         }
-        return \is_string($value) ? \trim($value) : $default;
+        return \is_string($value) ? trim($value) : $default;
     }
 }

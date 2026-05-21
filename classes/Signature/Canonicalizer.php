@@ -51,7 +51,7 @@ final class Canonicalizer
         if ($url === '') {
             return '';
         }
-        $parts = \parse_url($url);
+        $parts = parse_url($url);
         if (!\is_array($parts) || ($parts['scheme'] ?? '') !== 'https') {
             return '';
         }
@@ -59,7 +59,7 @@ final class Canonicalizer
         if ($rawHost === '') {
             return '';
         }
-        $host = \idn_to_ascii(
+        $host = idn_to_ascii(
             $rawHost,
             IDNA_NONTRANSITIONAL_TO_ASCII | IDNA_CHECK_BIDI | IDNA_CHECK_CONTEXTJ,
             INTL_IDNA_VARIANT_UTS46,
@@ -67,7 +67,7 @@ final class Canonicalizer
         if ($host === false || $host === '') {
             return '';
         }
-        $host = \strtolower($host);
+        $host = strtolower($host);
         $port = $parts['port'] ?? 443;
         return 'https://' . $host . ($port === 443 ? '' : ':' . $port);
     }
@@ -77,7 +77,7 @@ final class Canonicalizer
         if ($url === '') {
             return '';
         }
-        $parts = \parse_url($url);
+        $parts = parse_url($url);
         if (!\is_array($parts)) {
             return '';
         }
@@ -88,7 +88,7 @@ final class Canonicalizer
         if ($rawHost === '') {
             return '';
         }
-        $host = \idn_to_ascii(
+        $host = idn_to_ascii(
             $rawHost,
             IDNA_NONTRANSITIONAL_TO_ASCII | IDNA_CHECK_BIDI | IDNA_CHECK_CONTEXTJ,
             INTL_IDNA_VARIANT_UTS46,
@@ -96,14 +96,14 @@ final class Canonicalizer
         if ($host === false || $host === '') {
             return '';
         }
-        $host = \strtolower($host);
+        $host = strtolower($host);
 
         $port = $parts['port'] ?? 443;
         $portPart = $port === 443 ? '' : ':' . $port;
 
         $path = $parts['path'] ?? '';
-        if ($path !== '/' && \str_ends_with($path, '/')) {
-            $path = \rtrim($path, '/');
+        if ($path !== '/' && str_ends_with($path, '/')) {
+            $path = rtrim($path, '/');
         }
 
         $result = 'https://' . $host . $portPart . $path;

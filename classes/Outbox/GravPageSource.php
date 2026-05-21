@@ -44,9 +44,9 @@ final class GravPageSource implements PageSource
             $records[] = $this->buildRecord($page);
         }
 
-        \usort(
+        usort(
             $records,
-            static fn(PageRecord $a, PageRecord $b): int
+            static fn (PageRecord $a, PageRecord $b): int
                 => $b->published <=> $a->published
         );
 
@@ -79,8 +79,8 @@ final class GravPageSource implements PageSource
     private function normalisedPrefix(): string
     {
         $prefix = $this->pathFilter;
-        $prefix = (string) \preg_replace('#/\*\*?$#', '', $prefix);
-        return \rtrim($prefix, '/');
+        $prefix = (string) preg_replace('#/\*\*?$#', '', $prefix);
+        return rtrim($prefix, '/');
     }
 
     private function routeUnderPrefix(string $route, string $prefix): bool
@@ -89,7 +89,7 @@ final class GravPageSource implements PageSource
             return true;
         }
         return $route === $prefix
-            || \str_starts_with($route, $prefix . '/');
+            || str_starts_with($route, $prefix . '/');
     }
 
     private function isFederatable(PageInterface $page, string $prefix): bool

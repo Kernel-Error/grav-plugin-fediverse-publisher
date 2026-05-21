@@ -35,9 +35,9 @@ final class RetryPolicy
         if ($attemptCount >= self::MAX_ATTEMPTS) {
             return null;
         }
-        $nominal = self::SCHEDULE[\min($attemptCount - 1, \count(self::SCHEDULE) - 1)] ?? self::SCHEDULE[0];
+        $nominal = self::SCHEDULE[min($attemptCount - 1, \count(self::SCHEDULE) - 1)] ?? self::SCHEDULE[0];
         // Full jitter: uniform in [0.5×, 1.5×]
-        $jittered = $nominal * (0.5 + \mt_rand(0, 1000) / 1000.0);
-        return (int) \round($jittered);
+        $jittered = $nominal * (0.5 + mt_rand(0, 1000) / 1000.0);
+        return (int) round($jittered);
     }
 }

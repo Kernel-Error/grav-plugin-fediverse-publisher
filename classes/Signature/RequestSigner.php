@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Grav\Plugin\FediversePublisher\Signature;
 
-use Nyholm\Psr7\Uri;
 use Psr\Http\Message\RequestInterface;
 
 /**
@@ -44,7 +43,7 @@ final class RequestSigner
 
         // Mandatory headers added by the signer itself.
         $now    = $this->clock->now()->setTimezone(new \DateTimeZone('UTC'))->format('D, d M Y H:i:s') . ' GMT';
-        $digest = 'SHA-256=' . \base64_encode(\hash('sha256', $body, true));
+        $digest = 'SHA-256=' . base64_encode(hash('sha256', $body, true));
 
         $request = $request
             ->withHeader('Date', $now)
@@ -66,19 +65,19 @@ final class RequestSigner
         foreach (self::SIGNED_HEADERS as $name) {
             if ($name === '(request-target)') {
                 $target = $uri->getPath() . ($uri->getQuery() !== '' ? '?' . $uri->getQuery() : '');
-                $lines[] = '(request-target): ' . \strtolower($request->getMethod()) . ' ' . $target;
+                $lines[] = '(request-target): ' . strtolower($request->getMethod()) . ' ' . $target;
                 continue;
             }
             $lines[] = $name . ': ' . $request->getHeaderLine($name);
         }
-        $signingString = \implode("\n", $lines);
+        $signingString = implode("\n", $lines);
 
         $signatureB64 = $this->signer->sign($signingString, $privatePem);
 
         $headerValue = \sprintf(
             'keyId="%s",algorithm="rsa-sha256",headers="%s",signature="%s"',
             $keyId,
-            \implode(' ', self::SIGNED_HEADERS),
+            implode(' ', self::SIGNED_HEADERS),
             $signatureB64,
         );
 

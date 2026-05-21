@@ -35,7 +35,7 @@ final class NodeInfoDiscoveryController
                 'Content-Type'  => 'application/json; charset=utf-8',
                 'Cache-Control' => 'public, max-age=300',
             ],
-            (string) \json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            (string) json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
         );
     }
 }

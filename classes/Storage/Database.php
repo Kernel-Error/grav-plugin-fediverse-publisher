@@ -20,7 +20,7 @@ final class Database
     public static function connect(string $path): PDO
     {
         $dir = \dirname($path);
-        if (!\is_dir($dir) && !@\mkdir($dir, 0700, true) && !\is_dir($dir)) {
+        if (!is_dir($dir) && !@mkdir($dir, 0700, true) && !is_dir($dir)) {
             throw new \RuntimeException("Database: cannot create $dir");
         }
         $pdo = new PDO('sqlite:' . $path, null, null, [

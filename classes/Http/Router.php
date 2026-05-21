@@ -27,7 +27,7 @@ final class Router
 
     public function add(string $method, string $path, callable $handler): void
     {
-        $this->routes[\strtoupper($method)][$path] = $handler;
+        $this->routes[strtoupper($method)][$path] = $handler;
     }
 
     public function get(string $path, callable $handler): void
@@ -42,7 +42,7 @@ final class Router
 
     public function dispatch(ServerRequestInterface $request): ?ResponseInterface
     {
-        $method = \strtoupper($request->getMethod());
+        $method = strtoupper($request->getMethod());
         $path   = $request->getUri()->getPath();
 
         if (isset($this->routes[$method][$path])) {
@@ -56,7 +56,7 @@ final class Router
             $response = ($this->routes['GET'][$path])($request);
             $length = $response->getBody()->getSize();
             return $response
-                ->withBody(new \Nyholm\Psr7\Stream(\fopen('php://temp', 'r+') ?: throw new \RuntimeException('cannot open php://temp')))
+                ->withBody(new \Nyholm\Psr7\Stream(fopen('php://temp', 'r+') ?: throw new \RuntimeException('cannot open php://temp')))
                 ->withHeader('Content-Length', (string) ($length ?? 0));
         }
 
@@ -71,7 +71,7 @@ final class Router
         if ($allowed !== []) {
             return new Response(
                 405,
-                ['Allow' => \implode(', ', $allowed)],
+                ['Allow' => implode(', ', $allowed)],
                 '',
             );
         }

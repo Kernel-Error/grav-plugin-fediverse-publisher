@@ -29,9 +29,9 @@ final class PageRecord
      */
     public function charCount(): int
     {
-        $text = (string) \preg_replace('/<[^>]*>/', '', $this->contentHtml);
-        $text = \html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        return \mb_strlen(\trim($text));
+        $text = (string) preg_replace('/<[^>]*>/', '', $this->contentHtml);
+        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        return mb_strlen(trim($text));
     }
 
     /**
@@ -41,6 +41,6 @@ final class PageRecord
      */
     public function id(): string
     {
-        return \substr(\hash('sha256', $this->route), 0, 16);
+        return substr(hash('sha256', $this->route), 0, 16);
     }
 }

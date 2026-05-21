@@ -16,10 +16,10 @@ final class DigestChecker
 {
     public function matches(string $rawBody, string $digestHeader): bool
     {
-        if (!\preg_match('/^SHA-256=([A-Za-z0-9+\/=]+)$/i', \trim($digestHeader), $m)) {
+        if (!preg_match('/^SHA-256=([A-Za-z0-9+\/=]+)$/i', trim($digestHeader), $m)) {
             return false;
         }
-        $expected = \base64_encode(\hash('sha256', $rawBody, true));
-        return \hash_equals($expected, $m[1]);
+        $expected = base64_encode(hash('sha256', $rawBody, true));
+        return hash_equals($expected, $m[1]);
     }
 }

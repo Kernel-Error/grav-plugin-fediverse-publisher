@@ -36,7 +36,7 @@ final class SignatureHeader
         // Splitting on top-level commas. Cavage-12 doesn't allow commas
         // inside quoted values, but we use a non-greedy quoted-value
         // pattern to be safe against weird encodings.
-        if (!\preg_match_all(
+        if (!preg_match_all(
             '/(?P<key>[a-zA-Z][a-zA-Z0-9_-]*)\s*=\s*"(?P<val>(?:[^"\\\\]|\\\\.)*)"/',
             $headerValue,
             $matches,
@@ -45,19 +45,19 @@ final class SignatureHeader
             return null;
         }
         foreach ($matches as $m) {
-            $params[\strtolower($m['key'])] = \stripslashes($m['val']);
+            $params[strtolower($m['key'])] = stripslashes($m['val']);
         }
 
         $keyId     = $params['keyid']     ?? '';
-        $algorithm = \strtolower($params['algorithm'] ?? '');
+        $algorithm = strtolower($params['algorithm'] ?? '');
         $signature = $params['signature'] ?? '';
-        $headers   = \strtolower(\trim($params['headers'] ?? ''));
+        $headers   = strtolower(trim($params['headers'] ?? ''));
 
         if ($keyId === '' || $signature === '' || $headers === '') {
             return null;
         }
 
-        $headerList = \array_values(\array_filter(\explode(' ', $headers), static fn(string $s): bool => $s !== ''));
+        $headerList = array_values(array_filter(explode(' ', $headers), static fn (string $s): bool => $s !== ''));
         if ($headerList === []) {
             return null;
         }

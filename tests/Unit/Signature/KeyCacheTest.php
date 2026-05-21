@@ -101,8 +101,11 @@ final class KeyCacheTest extends TestCase
 
         $entry = $cache->lookup('https://x/u#k');
         self::assertNotNull($entry);
-        self::assertSame('PEM-DATA', $entry->pem,
-            'a transient failure on the same key must not delete a previously-cached PEM');
+        self::assertSame(
+            'PEM-DATA',
+            $entry->pem,
+            'a transient failure on the same key must not delete a previously-cached PEM'
+        );
         self::assertSame(2000, $entry->lastFailureAt);
     }
 }

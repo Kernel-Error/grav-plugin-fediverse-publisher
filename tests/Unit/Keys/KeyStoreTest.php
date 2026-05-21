@@ -14,12 +14,12 @@ final class KeyStoreTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->tmpDir = \sys_get_temp_dir() . '/fpub-keystore-' . \bin2hex(\random_bytes(6));
+        $this->tmpDir = sys_get_temp_dir() . '/fpub-keystore-' . bin2hex(random_bytes(6));
     }
 
     protected function tearDown(): void
     {
-        if (\is_dir($this->tmpDir)) {
+        if (is_dir($this->tmpDir)) {
             $this->rrmdir($this->tmpDir);
         }
     }
@@ -38,10 +38,10 @@ final class KeyStoreTest extends TestCase
         self::assertFileExists($privatePath);
         self::assertFileExists($publicPath);
 
-        $privateMode = \fileperms($privatePath) & 0777;
-        $publicMode  = \fileperms($publicPath) & 0777;
+        $privateMode = fileperms($privatePath) & 0777;
+        $publicMode  = fileperms($publicPath) & 0777;
         self::assertSame(0600, $privateMode, 'private key must be 0600');
-        self::assertSame(0644, $publicMode,  'public key must be 0644');
+        self::assertSame(0644, $publicMode, 'public key must be 0644');
     }
 
     public function testGeneratedKeyIsRsa2048(): void
@@ -49,10 +49,10 @@ final class KeyStoreTest extends TestCase
         $store = new KeyStore($this->tmpDir);
         $pair = $store->generate('blog');
 
-        $key = \openssl_pkey_get_public($pair->publicPem);
+        $key = openssl_pkey_get_public($pair->publicPem);
         self::assertNotFalse($key, 'public PEM must parse via openssl');
 
-        $details = \openssl_pkey_get_details($key);
+        $details = openssl_pkey_get_details($key);
         self::assertIsArray($details);
         self::assertSame(OPENSSL_KEYTYPE_RSA, $details['type']);
         self::assertSame(2048, $details['bits']);
@@ -64,7 +64,7 @@ final class KeyStoreTest extends TestCase
         $generated = $store->generate('blog');
         $loaded = $store->load('blog');
 
-        self::assertSame($generated->publicPem,  $loaded->publicPem);
+        self::assertSame($generated->publicPem, $loaded->publicPem);
         self::assertSame($generated->privatePem, $loaded->privatePem);
     }
 
@@ -84,7 +84,7 @@ final class KeyStoreTest extends TestCase
         $first  = $store->loadOrGenerate('blog');
         $second = $store->loadOrGenerate('blog');
 
-        self::assertSame($first->publicPem,  $second->publicPem);
+        self::assertSame($first->publicPem, $second->publicPem);
         self::assertSame($first->privatePem, $second->privatePem);
     }
 
@@ -96,7 +96,7 @@ final class KeyStoreTest extends TestCase
         $store->generate('blog');
         self::assertTrue($store->exists('blog'));
 
-        \unlink($this->tmpDir . '/blog.public.pem');
+        unlink($this->tmpDir . '/blog.public.pem');
         self::assertFalse($store->exists('blog'));
     }
 
@@ -125,9 +125,9 @@ final class KeyStoreTest extends TestCase
 
     private function rrmdir(string $path): void
     {
-        foreach ((array) \glob($path . '/*') as $f) {
-            \is_dir($f) ? $this->rrmdir($f) : \unlink($f);
+        foreach ((array) glob($path . '/*') as $f) {
+            is_dir($f) ? $this->rrmdir($f) : unlink($f);
         }
-        \rmdir($path);
+        rmdir($path);
     }
 }

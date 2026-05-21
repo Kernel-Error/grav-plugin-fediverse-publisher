@@ -50,8 +50,8 @@ final class OutboxController
         }
 
         $pageNum = $this->parsePageNumber($query['p'] ?? '1');
-        $maxPage = $total === 0 ? 1 : (int) \ceil($total / self::PAGE_SIZE);
-        $pageNum = \max(1, \min($pageNum, $maxPage));
+        $maxPage = $total === 0 ? 1 : (int) ceil($total / self::PAGE_SIZE);
+        $pageNum = max(1, min($pageNum, $maxPage));
 
         $slice = \array_slice(
             $records,
@@ -70,7 +70,7 @@ final class OutboxController
             'type'       => 'OrderedCollection',
             'totalItems' => $total,
             'first'      => $this->outboxUrl . '?page=true&p=1',
-            'last'       => $this->outboxUrl . '?page=true&p=' . \max(1, (int) \ceil($total / self::PAGE_SIZE)),
+            'last'       => $this->outboxUrl . '?page=true&p=' . max(1, (int) ceil($total / self::PAGE_SIZE)),
         ];
 
         return $this->jsonResponse($doc);
@@ -118,7 +118,7 @@ final class OutboxController
                 'Cache-Control' => 'no-store, max-age=0',
                 'Vary'          => 'Accept',
             ],
-            (string) \json_encode($doc, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            (string) json_encode($doc, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
         );
     }
 

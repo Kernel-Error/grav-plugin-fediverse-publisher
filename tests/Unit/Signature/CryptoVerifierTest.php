@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Grav\Plugin\FediversePublisher\Tests\Unit\Signature;
 
 use Grav\Plugin\FediversePublisher\Signature\CryptoVerifier;
-use PHPUnit\Framework\TestCase;
 use phpseclib3\Crypt\RSA;
+use PHPUnit\Framework\TestCase;
 
 final class CryptoVerifierTest extends TestCase
 {
@@ -55,6 +55,6 @@ final class CryptoVerifierTest extends TestCase
         /** @var \phpseclib3\Crypt\RSA\PrivateKey $key */
         $key = RSA::loadPrivateKey($this->privatePem);
         $key = $key->withHash('sha256')->withPadding(RSA::SIGNATURE_PKCS1);
-        return \base64_encode((string) $key->sign($payload));
+        return base64_encode((string) $key->sign($payload));
     }
 }

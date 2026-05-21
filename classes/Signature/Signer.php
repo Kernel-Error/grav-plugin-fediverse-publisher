@@ -41,6 +41,6 @@ final class Signer
         if ($sig === '' || $sig === false) {
             throw new \RuntimeException('Signer: signing returned empty result');
         }
-        return \base64_encode($sig);
+        return base64_encode($sig);
     }
 }

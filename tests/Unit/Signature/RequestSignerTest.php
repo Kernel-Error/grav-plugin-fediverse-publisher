@@ -11,8 +11,8 @@ use Grav\Plugin\FediversePublisher\Signature\RequestSigner;
 use Grav\Plugin\FediversePublisher\Signature\SignatureHeader;
 use Grav\Plugin\FediversePublisher\Signature\Signer;
 use Nyholm\Psr7\Factory\Psr17Factory;
-use PHPUnit\Framework\TestCase;
 use phpseclib3\Crypt\RSA;
+use PHPUnit\Framework\TestCase;
 
 final class RequestSignerTest extends TestCase
 {
@@ -74,7 +74,7 @@ final class RequestSignerTest extends TestCase
             }
             $lines[] = $name . ': ' . $signed->getHeaderLine($name);
         }
-        $signingString = \implode("\n", $lines);
+        $signingString = implode("\n", $lines);
 
         self::assertTrue(
             (new CryptoVerifier())->verify($signingString, $parsed->signature, $this->publicPem),
@@ -90,7 +90,7 @@ final class RequestSignerTest extends TestCase
 
         $signed = $this->signer()->sign($req, 'https://blog.local/a#k', $this->privatePem);
 
-        $expectedDigest = 'SHA-256=' . \base64_encode(\hash('sha256', $body, true));
+        $expectedDigest = 'SHA-256=' . base64_encode(hash('sha256', $body, true));
         self::assertSame($expectedDigest, $signed->getHeaderLine('Digest'));
     }
 

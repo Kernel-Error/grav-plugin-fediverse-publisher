@@ -46,7 +46,7 @@ final class WebFingerController
         }
 
         // Case-insensitive host match (RFC), case-sensitive local part.
-        if (\strcasecmp($host, $this->localHost) !== 0) {
+        if (strcasecmp($host, $this->localHost) !== 0) {
             return $this->error(404, 'unknown account');
         }
         if ($user !== $this->actor->username()) {
@@ -54,7 +54,7 @@ final class WebFingerController
         }
 
         $actorUrl = $this->actor->actorUrl();
-        $profileUrl = \rtrim($this->derivedHostBase($actorUrl), '/') . '/';
+        $profileUrl = rtrim($this->derivedHostBase($actorUrl), '/') . '/';
 
         $jrd = [
             'subject' => 'acct:' . $user . '@' . $host,
@@ -80,7 +80,7 @@ final class WebFingerController
                 'Cache-Control' => 'no-store, max-age=0',
                 'Vary'          => 'Accept',
             ],
-            (string) \json_encode($jrd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            (string) json_encode($jrd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
         );
     }
 
@@ -89,22 +89,22 @@ final class WebFingerController
      */
     private function parseAcct(string $resource): ?array
     {
-        if (!\str_starts_with($resource, 'acct:')) {
+        if (!str_starts_with($resource, 'acct:')) {
             return null;
         }
-        $rest = \substr($resource, 5);
-        $at = \strrpos($rest, '@');
+        $rest = substr($resource, 5);
+        $at = strrpos($rest, '@');
         if ($at === false || $at === 0 || $at === \strlen($rest) - 1) {
             return null;
         }
-        $user = \substr($rest, 0, $at);
-        $host = \substr($rest, $at + 1);
+        $user = substr($rest, 0, $at);
+        $host = substr($rest, $at + 1);
         return [$user, $host];
     }
 
     private function derivedHostBase(string $actorUrl): string
     {
-        $parts = \parse_url($actorUrl);
+        $parts = parse_url($actorUrl);
         if (!\is_array($parts) || !isset($parts['scheme'], $parts['host'])) {
             return '';
         }
@@ -120,7 +120,7 @@ final class WebFingerController
         return new Response(
             $status,
             ['Content-Type' => 'application/jrd+json; charset=utf-8'],
-            (string) \json_encode(['error' => $message]),
+            (string) json_encode(['error' => $message]),
         );
     }
 }

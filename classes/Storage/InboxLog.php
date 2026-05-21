@@ -48,7 +48,7 @@ final class InboxLog
             ':id'  => $activityId,
             ':a'   => $actorUrl,
             ':t'   => $type,
-            ':ts'  => \time(),
+            ':ts'  => time(),
             ':raw' => $rawJson,
         ]);
         return $stmt->rowCount() === 1;

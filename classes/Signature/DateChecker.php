@@ -26,7 +26,7 @@ final class DateChecker
         if ($dateHeader === '') {
             return false;
         }
-        $ts = \strtotime($dateHeader);
+        $ts = strtotime($dateHeader);
         if ($ts === false) {
             return false;
         }

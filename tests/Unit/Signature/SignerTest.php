@@ -6,8 +6,8 @@ namespace Grav\Plugin\FediversePublisher\Tests\Unit\Signature;
 
 use Grav\Plugin\FediversePublisher\Signature\CryptoVerifier;
 use Grav\Plugin\FediversePublisher\Signature\Signer;
-use PHPUnit\Framework\TestCase;
 use phpseclib3\Crypt\RSA;
+use PHPUnit\Framework\TestCase;
 
 /**
  * Signer + CryptoVerifier are symmetric. Best confidence comes from

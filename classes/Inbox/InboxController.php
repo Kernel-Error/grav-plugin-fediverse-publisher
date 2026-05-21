@@ -50,7 +50,7 @@ final class InboxController
             return $this->jsonError(413, 'payload too large');
         }
 
-        $activity = \json_decode($body, true);
+        $activity = json_decode($body, true);
         if (!\is_array($activity)) {
             return $this->jsonError(400, 'malformed json');
         }
@@ -63,10 +63,10 @@ final class InboxController
             return $this->jsonError($result->status, 'inbox rejected');
         }
 
-        $type = \strtolower((string) ($result->activity['type'] ?? ''));
+        $type = strtolower((string) ($result->activity['type'] ?? ''));
         return match ($type) {
             'follow' => $this->followHandler->handle($result->activity, $result->verifiedKey),
-            'undo'   => $this->undoHandler->handle($result->activity,   $result->verifiedKey),
+            'undo'   => $this->undoHandler->handle($result->activity, $result->verifiedKey),
             default  => new Response(202, [], ''),
         };
     }
@@ -104,7 +104,7 @@ final class InboxController
         return new Response(
             $status,
             ['Content-Type' => 'application/activity+json; charset=utf-8'],
-            (string) \json_encode(['error' => $message]),
+            (string) json_encode(['error' => $message]),
         );
     }
 }

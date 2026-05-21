@@ -40,13 +40,16 @@ final class ActivityTransformerTest extends TestCase
 
         self::assertSame('Create', $create['type']);
         self::assertSame('https://blog.local/activitypub/actor', $create['actor']);
-        self::assertSame('https://blog.local/blog/example#create-' . \strtotime('2026-05-01T10:00:00Z'), $create['id']);
+        self::assertSame('https://blog.local/blog/example#create-' . strtotime('2026-05-01T10:00:00Z'), $create['id']);
         self::assertSame(['https://www.w3.org/ns/activitystreams#Public'], $create['to']);
 
         self::assertArrayHasKey('object', $create);
         self::assertSame('Note', $create['object']['type']);
-        self::assertArrayNotHasKey('@context', $create['object'],
-            'Inner object must not carry its own @context — Create owns it.');
+        self::assertArrayNotHasKey(
+            '@context',
+            $create['object'],
+            'Inner object must not carry its own @context — Create owns it.'
+        );
     }
 
     public function testCreateIdIsStableAcrossCalls(): void
@@ -60,10 +63,10 @@ final class ActivityTransformerTest extends TestCase
     public function testJsonRoundtripsCleanly(): void
     {
         $create = $this->transformer()->transformCreate($this->page(), true);
-        $json = \json_encode($create, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $json = json_encode($create, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         self::assertIsString($json);
 
-        $decoded = \json_decode($json, true);
+        $decoded = json_decode($json, true);
         self::assertSame($create, $decoded);
     }
 

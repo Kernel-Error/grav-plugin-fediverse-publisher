@@ -51,7 +51,7 @@ final class KeyStore
         $publicPem  = (string) $private->getPublicKey();       // SPKI PEM
 
         $this->writeAtomic($this->privatePath($username), $privatePem, 0600);
-        $this->writeAtomic($this->publicPath($username),  $publicPem,  0644);
+        $this->writeAtomic($this->publicPath($username), $publicPem, 0644);
 
         return new KeyPair($username, $publicPem, $privatePem);
     }
@@ -63,7 +63,7 @@ final class KeyStore
         $privatePath = $this->privatePath($username);
         $publicPath  = $this->publicPath($username);
 
-        if (!\is_file($privatePath) || !\is_file($publicPath)) {
+        if (!is_file($privatePath) || !is_file($publicPath)) {
             throw new RuntimeException(\sprintf(
                 "KeyStore: no keypair on disk for '%s' (looked under '%s')",
                 $username,
@@ -71,8 +71,8 @@ final class KeyStore
             ));
         }
 
-        $privatePem = (string) \file_get_contents($privatePath);
-        $publicPem  = (string) \file_get_contents($publicPath);
+        $privatePem = (string) file_get_contents($privatePath);
+        $publicPem  = (string) file_get_contents($publicPath);
 
         return new KeyPair($username, $publicPem, $privatePem);
     }
@@ -80,8 +80,8 @@ final class KeyStore
     public function exists(string $username): bool
     {
         $this->assertValidUsername($username);
-        return \is_file($this->privatePath($username))
-            && \is_file($this->publicPath($username));
+        return is_file($this->privatePath($username))
+            && is_file($this->publicPath($username));
     }
 
     /**
@@ -109,10 +109,10 @@ final class KeyStore
 
     private function ensureBaseDirExists(): void
     {
-        if (\is_dir($this->baseDir)) {
+        if (is_dir($this->baseDir)) {
             return;
         }
-        if (!@\mkdir($this->baseDir, 0700, true) && !\is_dir($this->baseDir)) {
+        if (!@mkdir($this->baseDir, 0700, true) && !is_dir($this->baseDir)) {
             throw new RuntimeException(\sprintf(
                 "KeyStore: cannot create keys directory '%s'",
                 $this->baseDir,
@@ -129,23 +129,23 @@ final class KeyStore
     {
         $tmp = $path . '.tmp';
 
-        if (\file_put_contents($tmp, $contents, LOCK_EX) !== \strlen($contents)) {
-            @\unlink($tmp);
+        if (file_put_contents($tmp, $contents, LOCK_EX) !== \strlen($contents)) {
+            @unlink($tmp);
             throw new RuntimeException("KeyStore: failed to write '$tmp'");
         }
-        if (!\chmod($tmp, $mode)) {
-            @\unlink($tmp);
+        if (!chmod($tmp, $mode)) {
+            @unlink($tmp);
             throw new RuntimeException("KeyStore: failed to chmod '$tmp'");
         }
-        if (!\rename($tmp, $path)) {
-            @\unlink($tmp);
+        if (!rename($tmp, $path)) {
+            @unlink($tmp);
             throw new RuntimeException("KeyStore: failed to rename '$tmp' to '$path'");
         }
     }
 
     private function assertValidUsername(string $username): void
     {
-        if (\preg_match(self::USERNAME_PATTERN, $username) !== 1) {
+        if (preg_match(self::USERNAME_PATTERN, $username) !== 1) {
             throw new RuntimeException(\sprintf(
                 "KeyStore: invalid username '%s' (must match %s)",
                 $username,

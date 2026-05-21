@@ -34,12 +34,12 @@ final class ActorController
             return new Response(
                 404,
                 ['Content-Type' => 'application/activity+json; charset=utf-8'],
-                (string) \json_encode(['error' => 'actor not configured']),
+                (string) json_encode(['error' => 'actor not configured']),
             );
         }
 
         $doc = $this->actor->build();
-        $body = (string) \json_encode(
+        $body = (string) json_encode(
             $doc,
             JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
         );

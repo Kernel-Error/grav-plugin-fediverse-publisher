@@ -54,8 +54,8 @@ final class OutboundQueue
      */
     public function enqueue(array $activity, string $recipientInbox, string $actor): void
     {
-        $now = \time();
-        $payload = (string) \json_encode($activity, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $now = time();
+        $payload = (string) json_encode($activity, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         $stmt = $this->pdo->prepare(
             'INSERT OR IGNORE INTO push_queue
                 (activity_id, recipient_inbox, actor, payload, status, attempt_count, next_attempt_at, created_at, updated_at)
@@ -80,13 +80,13 @@ final class OutboundQueue
      */
     public function reclaimStuck(int $reclaimThresholdSeconds): int
     {
-        $cutoff = \time() - $reclaimThresholdSeconds;
+        $cutoff = time() - $reclaimThresholdSeconds;
         $stmt = $this->pdo->prepare(
             'UPDATE push_queue
                 SET status = "pending", worker_id = NULL, claimed_at = NULL, updated_at = :now
               WHERE status = "processing" AND claimed_at < :cutoff'
         );
-        $stmt->execute([':now' => \time(), ':cutoff' => $cutoff]);
+        $stmt->execute([':now' => time(), ':cutoff' => $cutoff]);
         return $stmt->rowCount();
     }
 
@@ -99,7 +99,7 @@ final class OutboundQueue
      */
     public function claimBatch(string $workerId, int $limit): array
     {
-        $now = \time();
+        $now = time();
         $this->pdo->beginTransaction();
         try {
             $stmt = $this->pdo->prepare(
@@ -112,18 +112,18 @@ final class OutboundQueue
             $stmt->bindValue(':lim', $limit, \PDO::PARAM_INT);
             $stmt->execute();
             /** @var list<int> $ids */
-            $ids = \array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+            $ids = array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
             if ($ids === []) {
                 $this->pdo->commit();
                 return [];
             }
-            $placeholders = \implode(',', \array_fill(0, \count($ids), '?'));
+            $placeholders = implode(',', array_fill(0, \count($ids), '?'));
             $upd = $this->pdo->prepare(
                 "UPDATE push_queue
                     SET status = 'processing', worker_id = ?, claimed_at = ?, updated_at = ?
                   WHERE id IN ($placeholders)"
             );
-            $upd->execute(\array_merge([$workerId, $now, $now], $ids));
+            $upd->execute(array_merge([$workerId, $now, $now], $ids));
             $this->pdo->commit();
             return $ids;
         } catch (\Throwable $e) {
@@ -143,7 +143,7 @@ final class OutboundQueue
         if ($row === false) {
             return null;
         }
-        $decoded = \json_decode((string) $row['payload'], true);
+        $decoded = json_decode((string) $row['payload'], true);
         return new QueueRecord(
             id:             (int) $row['id'],
             activityId:     (string) $row['activity_id'],
@@ -161,7 +161,7 @@ final class OutboundQueue
                 SET claimed_at = :ts, updated_at = :ts
               WHERE id = :id AND worker_id = :w AND status = "processing"'
         );
-        $stmt->execute([':id' => $id, ':w' => $workerId, ':ts' => \time()]);
+        $stmt->execute([':id' => $id, ':w' => $workerId, ':ts' => time()]);
         return $stmt->rowCount() === 1;
     }
 
@@ -172,7 +172,7 @@ final class OutboundQueue
                 SET status = "done", last_http_status = 200, updated_at = :ts
               WHERE id = :id'
         );
-        $stmt->execute([':id' => $id, ':ts' => \time()]);
+        $stmt->execute([':id' => $id, ':ts' => time()]);
     }
 
     public function markDead(int $id, int $status, string $reason): void
@@ -185,7 +185,7 @@ final class OutboundQueue
                     updated_at = :ts
               WHERE id = :id'
         );
-        $stmt->execute([':id' => $id, ':s' => $status, ':r' => $reason, ':ts' => \time()]);
+        $stmt->execute([':id' => $id, ':s' => $status, ':r' => $reason, ':ts' => time()]);
     }
 
     public function reschedule(int $id, int $newAttemptCount, int $delaySeconds, int $lastStatus, string $reason): void
@@ -205,10 +205,10 @@ final class OutboundQueue
         $stmt->execute([
             ':id'   => $id,
             ':c'    => $newAttemptCount,
-            ':next' => \time() + $delaySeconds,
+            ':next' => time() + $delaySeconds,
             ':s'    => $lastStatus,
             ':r'    => $reason,
-            ':ts'   => \time(),
+            ':ts'   => time(),
         ]);
     }
 }

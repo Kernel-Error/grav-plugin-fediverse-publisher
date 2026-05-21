@@ -32,7 +32,7 @@ final class NodeInfoController
                 'Content-Type'  => 'application/json; profile="http://nodeinfo.diaspora.software/ns/schema/2.0#"; charset=utf-8',
                 'Cache-Control' => 'public, max-age=300',
             ],
-            (string) \json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            (string) json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
         );
     }
 }

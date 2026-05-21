@@ -12,7 +12,7 @@ final class DigestCheckerTest extends TestCase
     public function testValidDigest(): void
     {
         $body   = '{"hello":"world"}';
-        $digest = 'SHA-256=' . \base64_encode(\hash('sha256', $body, true));
+        $digest = 'SHA-256=' . base64_encode(hash('sha256', $body, true));
         self::assertTrue((new DigestChecker())->matches($body, $digest));
     }
 
@@ -20,7 +20,7 @@ final class DigestCheckerTest extends TestCase
     {
         self::assertFalse((new DigestChecker())->matches(
             '{"a":1}',
-            'SHA-256=' . \base64_encode(\hash('sha256', '{"a":2}', true)),
+            'SHA-256=' . base64_encode(hash('sha256', '{"a":2}', true)),
         ));
     }
 
@@ -33,14 +33,14 @@ final class DigestCheckerTest extends TestCase
     public function testCaseInsensitivePrefix(): void
     {
         $body = 'x';
-        $digest = 'sha-256=' . \base64_encode(\hash('sha256', $body, true));
+        $digest = 'sha-256=' . base64_encode(hash('sha256', $body, true));
         self::assertTrue((new DigestChecker())->matches($body, $digest));
     }
 
     public function testUnknownAlgorithmRejected(): void
     {
         $body = 'x';
-        $sha512 = 'SHA-512=' . \base64_encode(\hash('sha512', $body, true));
+        $sha512 = 'SHA-512=' . base64_encode(hash('sha512', $body, true));
         self::assertFalse((new DigestChecker())->matches($body, $sha512));
     }
 

@@ -83,7 +83,7 @@ final class OutboxBroadcasterTest extends TestCase
         $followers->upsertPending('https://peer.example/users/alice', 'https://peer.example/users/alice/inbox', null);
         $followers->markAccepted('https://peer.example/users/alice');
 
-        $long = $this->page('<p>' . \str_repeat('lorem ', 500) . '</p>');
+        $long = $this->page('<p>' . str_repeat('lorem ', 500) . '</p>');
         (new OutboxBroadcaster(
             followers:     $followers,
             queue:         new OutboundQueue($this->pdo),
@@ -97,7 +97,7 @@ final class OutboxBroadcasterTest extends TestCase
         ))->broadcast($long);
 
         $payload = $this->pdo->query('SELECT payload FROM push_queue LIMIT 1')->fetchColumn();
-        $doc = \json_decode((string) $payload, true);
+        $doc = json_decode((string) $payload, true);
         self::assertSame('Article', $doc['object']['type']);
     }
 

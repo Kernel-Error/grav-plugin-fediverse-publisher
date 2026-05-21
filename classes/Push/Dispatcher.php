@@ -75,7 +75,7 @@ final class Dispatcher
         $workerId = $this->workerId();
         $claimed  = $this->queue->claimBatch($workerId, self::BATCH_SIZE);
 
-        $start = \microtime(true);
+        $start = microtime(true);
         $counts = ['processed' => 0, 'success' => 0, 'retried' => 0, 'dead' => 0, 'stale' => 0];
 
         $keyId = $this->localActorUrl . '#main-key';
@@ -87,7 +87,7 @@ final class Dispatcher
         }
 
         foreach ($claimed as $id) {
-            if (\microtime(true) - $start > self::BATCH_WALLCLOCK_SECONDS) {
+            if (microtime(true) - $start > self::BATCH_WALLCLOCK_SECONDS) {
                 // Leave the rest claimed; the next tick picks them up
                 // after the heartbeat threshold or by an explicit
                 // reschedule the worker hasn't made — release them.
@@ -117,7 +117,7 @@ final class Dispatcher
     private function deliverOne(QueueRecord $record, string $keyId, string $privatePem, array &$counts): void
     {
         $factory = new Psr17Factory();
-        $body    = (string) \json_encode($record->payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $body    = (string) json_encode($record->payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         $request = $factory->createRequest('POST', $record->recipientInbox)
             ->withHeader('Content-Type', 'application/activity+json')
             ->withBody($factory->createStream($body));
@@ -220,8 +220,8 @@ final class Dispatcher
      */
     private function ownerFromInbox(string $inboxUrl): string
     {
-        if (\str_ends_with($inboxUrl, '/inbox')) {
-            return \substr($inboxUrl, 0, -6);
+        if (str_ends_with($inboxUrl, '/inbox')) {
+            return substr($inboxUrl, 0, -6);
         }
         return $inboxUrl;
     }
@@ -230,9 +230,9 @@ final class Dispatcher
     {
         return \sprintf(
             '%s:%d:%s',
-            \gethostname() ?: 'unknown',
-            \getmypid() ?: 0,
-            \bin2hex(\random_bytes(4)),
+            gethostname() ?: 'unknown',
+            getmypid() ?: 0,
+            bin2hex(random_bytes(4)),
         );
     }
 }

@@ -21,8 +21,8 @@ final class MediaType
         if ($header === '') {
             return false;
         }
-        $parts = \explode(';', $header, 2);
-        $mediaType = \strtolower(\trim($parts[0]));
+        $parts = explode(';', $header, 2);
+        $mediaType = strtolower(trim($parts[0]));
 
         if ($mediaType === 'application/activity+json') {
             return true;
@@ -32,7 +32,7 @@ final class MediaType
         }
 
         $params = $parts[1] ?? '';
-        return \preg_match(
+        return preg_match(
             '/profile\s*=\s*"?https:\/\/www\.w3\.org\/ns\/activitystreams"?/i',
             $params,
         ) === 1;

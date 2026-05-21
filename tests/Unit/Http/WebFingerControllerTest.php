@@ -8,7 +8,6 @@ use Grav\Plugin\FediversePublisher\Actor\ActorBuilder;
 use Grav\Plugin\FediversePublisher\Http\WebFingerController;
 use Grav\Plugin\FediversePublisher\Keys\KeyStore;
 use Nyholm\Psr7\ServerRequest;
-use Nyholm\Psr7\Uri;
 use PHPUnit\Framework\TestCase;
 
 final class WebFingerControllerTest extends TestCase
@@ -17,16 +16,16 @@ final class WebFingerControllerTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->tmpDir = \sys_get_temp_dir() . '/fpub-wf-' . \bin2hex(\random_bytes(6));
+        $this->tmpDir = sys_get_temp_dir() . '/fpub-wf-' . bin2hex(random_bytes(6));
     }
 
     protected function tearDown(): void
     {
-        if (\is_dir($this->tmpDir)) {
-            foreach ((array) \glob($this->tmpDir . '/*') as $f) {
-                \unlink($f);
+        if (is_dir($this->tmpDir)) {
+            foreach ((array) glob($this->tmpDir . '/*') as $f) {
+                unlink($f);
             }
-            \rmdir($this->tmpDir);
+            rmdir($this->tmpDir);
         }
     }
 
@@ -42,7 +41,7 @@ final class WebFingerControllerTest extends TestCase
         self::assertSame(200, $response->getStatusCode());
         self::assertSame('application/jrd+json; charset=utf-8', $response->getHeaderLine('Content-Type'));
 
-        $body = \json_decode((string) $response->getBody(), true);
+        $body = json_decode((string) $response->getBody(), true);
         self::assertSame('acct:blog@blog.local', $body['subject']);
         self::assertContains('https://blog.local/activitypub/actor', $body['aliases']);
 
