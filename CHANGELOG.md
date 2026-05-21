@@ -139,6 +139,49 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   GET, SQLite database materialised under
   `user/data/fediverse-publisher/fediverse-publisher.sqlite`.
 
+### Added (release polish + repo bootstrap)
+- `cli/FlushQueueCommand.php` — `bin/plugin fediverse-publisher
+  flush-queue` synchronously drains the outbound push queue. Useful
+  for dev + smoke-testing without waiting for the scheduler tick.
+  Builds the Dispatcher independently of the plugin's runtime
+  wiring (the `onPluginsInitialized` hook doesn't fire the same
+  way in CLI mode).
+- `.github/workflows/ci.yml` — CI matrix on PHP 8.1 / 8.2 / 8.3
+  running PHPUnit, PHPStan, and PHP-CS-Fixer. Composer cache by
+  PHP version + composer.json hash.
+- `.github/dependabot.yml` — weekly composer scan with dev-deps
+  grouped, monthly actions scan.
+- `.gitattributes` with `export-ignore` for dev-only files (tests,
+  PHPUnit / PHPStan / PHP-CS-Fixer configs, .github tree) so
+  `composer create-project` and `git archive` produce clean
+  releases.
+- `SECURITY.md` with a private-disclosure email.
+- `blueprints.yaml`: added a top-level `compatibility: { grav:
+  ['1.7', '2.0'] }` block so the Grav 2.0 RC admin shows both
+  badges in the plugin overview. The `dependencies` clause alone
+  only lights up the lower-bound version.
+
+### Changed (release polish)
+- `Push\Dispatcher`: dropped unused `Clock` and
+  `allowedReservedCidrs` constructor parameters. Clock was
+  threaded through speculatively; the SSRF allow-list is only
+  relevant for the verifier-side `KeyFetcher`, never for outbound
+  push (we only POST to inboxes that came from a previously-
+  verified actor doc).
+- `Signature\KeyFetcher`: `User-Agent` is now config-derived
+  (`grav-plugin-fediverse-publisher/<version> (+<site-url>/)`)
+  instead of the hardcoded `blog.local` placeholder.
+- `NOTICES.md`: now reflects the actual state — none of
+  `wordpress-activitypub`'s code is ported into this plugin.
+  Signer + Verifier are fresh implementations against
+  draft-cavage-12; WP-AP was studied as an architecture reference,
+  not copied.
+- `README.md`: rewritten from scaffold-stage description ("v0.0.x
+  scaffold, federation in subsequent commits") to v0.1 status
+  ("end-to-end verified against GoToSocial"). Adds an operator
+  section with the SQLite inspection queries and the new CLI
+  command.
+
 ### Added (Block 2d — push worker + page broadcast)
 - `Signature\Signer` — phpseclib3-direct RSA-PKCS1-SHA256 signer.
   Symmetric to `CryptoVerifier`, no landrok involvement.
