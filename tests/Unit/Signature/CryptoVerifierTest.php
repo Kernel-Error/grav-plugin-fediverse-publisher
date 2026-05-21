@@ -52,9 +52,9 @@ final class CryptoVerifierTest extends TestCase
 
     private function sign(string $payload): string
     {
-        $key = RSA::loadPrivateKey($this->privatePem)
-            ->withHash('sha256')
-            ->withPadding(RSA::SIGNATURE_PKCS1);
+        /** @var \phpseclib3\Crypt\RSA\PrivateKey $key */
+        $key = RSA::loadPrivateKey($this->privatePem);
+        $key = $key->withHash('sha256')->withPadding(RSA::SIGNATURE_PKCS1);
         return \base64_encode((string) $key->sign($payload));
     }
 }
