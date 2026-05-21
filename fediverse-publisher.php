@@ -60,7 +60,7 @@ class FediversePublisherPlugin extends Plugin
      * Plugin version reported in NodeInfo `software.version`. Bumped
      * in lockstep with the version field in blueprints.yaml.
      */
-    private const SOFTWARE_VERSION = '0.0.1';
+    private const SOFTWARE_VERSION = '0.0.2';
     private const SOFTWARE_NAME    = 'grav-fediverse-publisher';
     private const HOST_PLATFORM    = 'grav';
 
@@ -177,27 +177,56 @@ class FediversePublisherPlugin extends Plugin
      * Composer autoload. Grav core calls this on every plugin during
      * boot and registers the returned ClassLoader via setAutoloader().
      * MUST be public.
+     *
+     * Wrapped in try/catch so a broken vendor/ doesn't take the host
+     * site down — Grav fires this method on every plugin during boot
+     * regardless of the `enabled` flag, so anything that throws here
+     * propagates straight out to HTTP 500. The production-deploy
+     * feedback for v0.0.1 documented exactly this footgun
+     * (`vendor/psr/log` colliding with Grav 1.7's bundled copy). The
+     * plugin is now no-op if its own vendor fails to load.
      */
     public function autoload(): ?ClassLoader
     {
-        $autoload = __DIR__ . '/vendor/autoload.php';
-        if (!\is_file($autoload)) {
+        try {
+            $autoload = __DIR__ . '/vendor/autoload.php';
+            if (!\is_file($autoload)) {
+                return null;
+            }
+            $loader = require $autoload;
+            return $loader instanceof ClassLoader ? $loader : null;
+        } catch (\Throwable $e) {
+            \error_log('fediverse-publisher: autoload failed, plugin disabled: ' . $e->getMessage());
             return null;
         }
-        /** @var ClassLoader $loader */
-        $loader = require $autoload;
-        return $loader;
     }
 
     public function runPreflight(): void
     {
-        $this->preflight = new PreflightCheck(
-            \extension_loaded('pdo_sqlite'),
-            $this->resolveBaseUrlPath(),
-        );
+        try {
+            // Load PreflightCheck via an explicit require — falling back
+            // here means our own vendor/ failed to load (autoload returned
+            // null), in which case the PSR-4 autoloader wouldn't resolve
+            // the class. We still want to be able to surface a useful
+            // error to the admin, not just 500.
+            if (!\class_exists(PreflightCheck::class, false)) {
+                require_once __DIR__ . '/classes/Preflight/PreflightCheck.php';
+            }
 
-        if (!$this->preflight->isHealthy()) {
-            $this->emitAdminNotices($this->preflight->getErrors());
+            $this->preflight = new PreflightCheck(
+                \extension_loaded('pdo_sqlite'),
+                $this->resolveBaseUrlPath(),
+            );
+
+            if (!$this->preflight->isHealthy()) {
+                $this->emitAdminNotices($this->preflight->getErrors());
+            }
+        } catch (\Throwable $e) {
+            // Last-resort guard: a bug here must never take the site
+            // down. The plugin silently degrades to a no-op; the error
+            // lands in the PHP-FPM error log for the operator.
+            \error_log('fediverse-publisher: preflight crashed, plugin disabled: ' . $e->getMessage());
+            $this->preflight = null;
         }
     }
 
@@ -215,9 +244,17 @@ class FediversePublisherPlugin extends Plugin
             return;
         }
 
-        $response = $this->buildRouter()->dispatch($this->currentRequest());
-        if ($response !== null) {
-            $this->grav->close($response);
+        try {
+            $response = $this->buildRouter()->dispatch($this->currentRequest());
+            if ($response !== null) {
+                $this->grav->close($response);
+            }
+        } catch (\Throwable $e) {
+            // A bug in our dispatcher must not take Grav's normal page
+            // rendering down. Log and bail; the user gets the regular
+            // page (which is unlikely to be useful for an AP request,
+            // but better than HTTP 500).
+            \error_log('fediverse-publisher: dispatcher crashed: ' . $e->getMessage());
         }
     }
 
@@ -442,6 +479,16 @@ class FediversePublisherPlugin extends Plugin
         if ($accept === '') {
             return;
         }
+
+        try {
+            $this->doPageContentNegotiation($accept);
+        } catch (\Throwable $e) {
+            \error_log('fediverse-publisher: content negotiation crashed: ' . $e->getMessage());
+        }
+    }
+
+    private function doPageContentNegotiation(string $accept): void
+    {
 
         $configArr = (array) $this->config->get('plugins.fediverse-publisher', []);
         $hostBase  = $this->resolveHostBase();

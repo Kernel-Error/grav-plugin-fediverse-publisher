@@ -46,10 +46,12 @@ Publish a [Grav](https://getgrav.org/) blog to the **Fediverse**
 
 ## Requirements
 
-- **Grav** 2.0 RC or later (primary target). 1.7.x supported on a
+- **Grav** 2.0 RC or later (primary target). 1.7.51+ supported on a
   best-effort basis.
 - **PHP 8.1+** with extensions: `pdo_sqlite`, `curl`, `dom`,
-  `intl`, `json`, `mbstring`, `openssl`, `simplexml`.
+  `intl`, `json`, `mbstring`, `openssl`, `simplexml`. `ext-intl`
+  is not bundled by default on Debian/Alpine and some FreeBSD ports —
+  worth verifying explicitly with `php -m | grep -i intl`.
 - **Grav at the document root.** Subdirectory installs are refused
   at activation because WebFinger lives at host-root
   (`/.well-known/webfinger`). If you need Grav under a subdirectory
@@ -58,9 +60,10 @@ Publish a [Grav](https://getgrav.org/) blog to the **Fediverse**
   webserver config.
 - **HTTPS with a publicly-trusted TLS certificate.** Mastodon and
   friends will not federate without TLS.
-- A working **Grav scheduler crontab**
-  (`bin/grav scheduler-install`). Without it the push worker
-  never fires.
+- A **per-minute cron** that drives `bin/grav scheduler`. Without
+  it the push worker never fires. See "Scheduler" below — Grav
+  1.7's CLI does not include a `scheduler-install` shortcut, the
+  crontab line has to be added by hand.
 
 ## Installation
 
@@ -71,7 +74,15 @@ cd user/plugins
 git clone https://github.com/Kernel-Error/grav-plugin-fediverse-publisher fediverse-publisher
 cd fediverse-publisher
 composer install --no-dev
+# Set ownership to whatever the webserver user is — common pairings:
+#   Debian/Ubuntu (apache/nginx + php-fpm) → www-data:www-data
+#   FreeBSD       (nginx + php-fpm)        → www:www
+#   Alpine        (nginx + php-fpm)        → nginx:nginx
+chown -R www-data:www-data .
 ```
+
+On FreeBSD the composer package follows the active PHP version:
+`pkg install php83-composer` (or `php82-composer` etc.).
 
 Then in the Grav admin: **Plugins → Fediverse Publisher → enable**,
 fill in the actor fields, save. On activation the plugin runs a
@@ -79,17 +90,25 @@ pre-flight check; if `pdo_sqlite` is missing or Grav is not at the
 document root, a clear admin notice explains why the plugin stays
 inactive.
 
-Last step — ensure the Grav scheduler is wired up:
+## Scheduler
 
-```bash
-cd /path/to/grav
-bin/grav scheduler-install
+The plugin pushes outbound deliveries on every Grav scheduler tick.
+Grav itself doesn't run a daemon — the scheduler is driven by an
+external cron entry calling `bin/grav scheduler`. Add this line to
+the crontab of the user that runs the webserver (NOT root):
+
+```
+* * * * * cd /path/to/grav && /usr/bin/php bin/grav scheduler 1>> /dev/null 2>&1
 ```
 
-This adds a single `* * * * *` line to the system crontab that
-ticks `bin/grav scheduler` once a minute. The plugin registers
-itself on that tick so the outbound push queue is drained
-automatically.
+The plugin job is wired up via `onSchedulerInitialized` and runs at
+`* * * * *` — once per minute is the minimum cadence the plugin
+expects. If the external cron fires less often (e.g. hourly), the
+push queue still drains, just at the slower cadence; pushes pile up
+between ticks and may bump against the 7-attempt retry cap.
+
+`bin/grav scheduler -j status` lists the plugin's job alongside any
+others Grav has been told about.
 
 ## Configuration
 
@@ -115,6 +134,9 @@ canonical config file is
 ```bash
 # Drain the push queue once, synchronously. Useful for dev / smoke.
 bin/plugin fediverse-publisher flush-queue
+
+# Clear all Grav caches (mind the syntax — there's no dash):
+bin/grav clearcache --all
 ```
 
 Inspecting state from the database directly:
@@ -146,6 +168,31 @@ composer lint:fix      # apply style fixes
 A local test stack with Grav + GoToSocial behind Caddy/TLS lives in
 the parent project repo's `dev/` directory (not part of this plugin
 release). See that directory's `README.md` for the runbook.
+
+## Troubleshooting
+
+- **Site returns HTTP 500 after the plugin's `composer install`** —
+  this used to happen on Grav 1.7 because a transitive Symfony
+  dependency pulled `psr/log` v3, which conflicted with Grav core's
+  bundled v1. v0.0.2 pins `psr/log` to `^1.1` to avoid this. If you
+  still see it: confirm `vendor/psr/log/Psr/Log/LoggerInterface.php`
+  in the plugin's vendor has untyped `$message` parameters (v1
+  shape) — anything else means an unexpected upgrade. Recovery is
+  `mv user/plugins/fediverse-publisher /tmp/`, then
+  `bin/grav clearcache --all`, then **restart** PHP-FPM (a reload
+  does not clear shared-memory OPcache, which is what's holding the
+  poisoned class definitions).
+- **`bin/plugin fediverse-publisher flush-queue` returns
+  `processed=0`** — most often: the configured `actor.username` is
+  empty, the actor's keys aren't on disk yet, or no follower has
+  been written. Check `user/data/fediverse-publisher/` for the
+  SQLite file + `keys/<username>.private.pem`.
+- **An incoming follow stays "pending"** — the follower row landed
+  in your DB but the Accept push hasn't gone out yet. Either the
+  scheduler isn't running, or the recipient inbox URL we derived
+  isn't reachable from the host (e.g. firewalled). The Grav log
+  carries one rate-limited entry per remote actor per minute with
+  the specific reason.
 
 ## License
 
