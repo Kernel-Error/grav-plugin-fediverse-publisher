@@ -104,42 +104,51 @@ final class ActivityTransformer
     }
 
     /**
-     * Extract image references from the rendered HTML and turn them
-     * into AS 2.0 `Document` objects. v0.0.3 takes the simple path:
-     * pull every absolute or root-relative `<img src=…>` out of the
-     * content, attach in order. Relative paths (just a filename) get
-     * skipped — they're not reachable from a federated peer.
+     * Build the AS 2.0 `attachment` list. Two sources are combined,
+     * in order, with deduplication on the final URL:
+     *
+     *   1. `<img src=…>` references embedded in the rendered body
+     *      HTML — typically the markdown editor's own image
+     *      placements.
+     *   2. Images attached via Grav's media API (files sitting next
+     *      to the markdown). On many Grav blogs the hero image
+     *      lives next to the post but isn't referenced from the
+     *      body — without this fallback, Mastodon shows the
+     *      article card without a thumbnail.
+     *
+     * Relative `./foo.jpg` style paths are dropped — peers can't
+     * resolve them.
      *
      * @return list<array<string, string>>
      */
     private function buildAttachments(PageRecord $page): array
     {
+        $out  = [];
+        $seen = [];
+
+        $this->appendFromHtml($page, $out, $seen);
+        $this->appendFromMedia($page, $out, $seen);
+
+        return $out;
+    }
+
+    /**
+     * @param list<array<string, string>> $out
+     * @param array<string, true>         $seen
+     */
+    private function appendFromHtml(PageRecord $page, array &$out, array &$seen): void
+    {
         if ($page->contentHtml === '') {
-            return [];
+            return;
         }
         if (!preg_match_all('#<img\b[^>]*\bsrc=["\']([^"\']+)["\']([^>]*)#i', $page->contentHtml, $matches, PREG_SET_ORDER)) {
-            return [];
+            return;
         }
-        $out = [];
-        $seen = [];
         foreach ($matches as $m) {
             $src  = $m[1];
             $rest = $m[2];
-            // Only emit absolutely-resolvable URLs — peers can't reach
-            // relative `./images/foo.jpg`.
-            if (str_starts_with($src, 'http://') || str_starts_with($src, 'https://')) {
-                $url = $src;
-            } elseif (str_starts_with($src, '/')) {
-                // Root-relative: prefix the host derived from $page->url
-                $parts = parse_url($page->url);
-                if (!\is_array($parts) || !isset($parts['scheme'], $parts['host'])) {
-                    continue;
-                }
-                $url = $parts['scheme'] . '://' . $parts['host'] . $src;
-            } else {
-                continue;
-            }
-            if (isset($seen[$url])) {
+            $url  = $this->normaliseImageUrl($src, $page->url);
+            if ($url === null || isset($seen[$url])) {
                 continue;
             }
             $seen[$url] = true;
@@ -158,7 +167,41 @@ final class ActivityTransformer
             }
             $out[] = $entry;
         }
-        return $out;
+    }
+
+    /**
+     * @param list<array<string, string>> $out
+     * @param array<string, true>         $seen
+     */
+    private function appendFromMedia(PageRecord $page, array &$out, array &$seen): void
+    {
+        foreach ($page->mediaImageUrls as $candidate) {
+            $url = $this->normaliseImageUrl($candidate, $page->url);
+            if ($url === null || isset($seen[$url])) {
+                continue;
+            }
+            $seen[$url] = true;
+            $out[] = [
+                'type'      => 'Document',
+                'mediaType' => $this->mediaTypeFromUrl($url),
+                'url'       => $url,
+            ];
+        }
+    }
+
+    private function normaliseImageUrl(string $src, string $pageUrl): ?string
+    {
+        if (str_starts_with($src, 'http://') || str_starts_with($src, 'https://')) {
+            return $src;
+        }
+        if (str_starts_with($src, '/')) {
+            $parts = parse_url($pageUrl);
+            if (!\is_array($parts) || !isset($parts['scheme'], $parts['host'])) {
+                return null;
+            }
+            return $parts['scheme'] . '://' . $parts['host'] . $src;
+        }
+        return null;
     }
 
     private function mediaTypeFromUrl(string $url): string

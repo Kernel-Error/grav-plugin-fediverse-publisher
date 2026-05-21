@@ -178,6 +178,74 @@ final class ActivityTransformerTest extends TestCase
         self::assertSame('application/octet-stream', $object['attachment'][3]['mediaType']);
     }
 
+    public function testAttachmentFallsBackToPageMediaWhenBodyHasNoImg(): void
+    {
+        // v0.0.4: many Grav blogs keep the hero image next to the
+        // markdown without embedding an <img> in the body. The
+        // PageRecord carries those URLs through; the transformer
+        // surfaces them as `attachment` Documents.
+        $page = new PageRecord(
+            route:          '/blog/example',
+            url:            'https://blog.local/blog/example',
+            title:          'Example',
+            contentHtml:    '<p>No image in body.</p>',
+            published:      new DateTimeImmutable('2026-05-01T10:00:00Z'),
+            modified:       new DateTimeImmutable('2026-05-02T10:00:00Z'),
+            mediaImageUrls: ['https://blog.local/uploads/hero.jpg'],
+        );
+
+        $object = $this->transformer()->transformObject($page, true);
+
+        self::assertArrayHasKey('attachment', $object);
+        self::assertCount(1, $object['attachment']);
+        self::assertSame('https://blog.local/uploads/hero.jpg', $object['attachment'][0]['url']);
+        self::assertSame('image/jpeg', $object['attachment'][0]['mediaType']);
+    }
+
+    public function testAttachmentMergesBodyAndMediaWithoutDuplicates(): void
+    {
+        $page = new PageRecord(
+            route:          '/blog/example',
+            url:            'https://blog.local/blog/example',
+            title:          'Example',
+            contentHtml:    '<img src="https://cdn.example/shared.jpg">',
+            published:      new DateTimeImmutable('2026-05-01T10:00:00Z'),
+            modified:       new DateTimeImmutable('2026-05-02T10:00:00Z'),
+            mediaImageUrls: [
+                'https://cdn.example/shared.jpg', // dup with body
+                'https://cdn.example/extra.png',
+            ],
+        );
+
+        $object = $this->transformer()->transformObject($page, true);
+
+        self::assertCount(2, $object['attachment']);
+        // Body-source comes first (preserved order).
+        self::assertSame('https://cdn.example/shared.jpg', $object['attachment'][0]['url']);
+        self::assertSame('https://cdn.example/extra.png', $object['attachment'][1]['url']);
+    }
+
+    public function testMediaImageUrlsRespectRootRelativeRewrite(): void
+    {
+        $page = new PageRecord(
+            route:          '/blog/example',
+            url:            'https://blog.local/blog/example',
+            title:          'Example',
+            contentHtml:    '',
+            published:      new DateTimeImmutable('2026-05-01T10:00:00Z'),
+            modified:       new DateTimeImmutable('2026-05-02T10:00:00Z'),
+            mediaImageUrls: ['/user/pages/09.blog/example/hero.png'],
+        );
+
+        $object = $this->transformer()->transformObject($page, true);
+
+        self::assertCount(1, $object['attachment']);
+        self::assertSame(
+            'https://blog.local/user/pages/09.blog/example/hero.png',
+            $object['attachment'][0]['url'],
+        );
+    }
+
     private function pageWith(string $html): PageRecord
     {
         return new PageRecord(

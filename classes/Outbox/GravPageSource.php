@@ -101,20 +101,18 @@ final class GravPageSource implements PageSource
         if (!$this->routeUnderPrefix($route, $prefix)) {
             return false;
         }
-        // v0.0.3: skip pages that look like blog INDEX pages instead of
-        // actual posts. The original v0.0.2 path-filter alone matched
-        // both `/blog/<post>` and `/blog` (the listing page itself),
-        // which then got federated as a "post" with empty body. We
-        // filter on two signals — either is sufficient to flag a page
-        // as a listing.
+        // v0.0.4: detect listing pages by structure, not by template
+        // name or frontmatter content. Real-world blogs name their
+        // post files `blog.md` inside per-post directories, which is
+        // also the conventional listing-template name — keying on
+        // template name alone false-positives every post.
         //
-        //  1. Twig template names that conventionally render
-        //     collections, not single items (`blog`, `listing`,
-        //     `archive`, …).
-        //  2. The rendered content body is empty (after HTML strip).
-        //     Listing pages typically have only their frontmatter
-        //     directives, no actual prose.
-        if ($this->isListingTemplate($page)) {
+        // A page is a listing iff it has children. The Grav blog
+        // skeleton structures the tree as `09.blog/blog.md` (the
+        // listing, has children) → `09.blog/<post>/<file>.md`
+        // (a post, no children). This is robust against
+        // copy-pasted frontmatter like `@self.children`.
+        if ($this->hasChildren($page)) {
             return false;
         }
         if (!$this->hasNonEmptyContent($page)) {
@@ -123,16 +121,28 @@ final class GravPageSource implements PageSource
         return true;
     }
 
-    private function isListingTemplate(PageInterface $page): bool
+    private function hasChildren(PageInterface $page): bool
     {
-        $template = '';
-        if (method_exists($page, 'template')) {
-            $template = (string) $page->template();
+        if (!method_exists($page, 'children')) {
+            return false;
         }
-        $template = strtolower($template);
-        // Grav-skeleton conventions: `blog` / `archive` / `listing`
-        // are containers, `item` / `default` / `post` are content.
-        return \in_array($template, ['blog', 'archive', 'listing', 'collection'], true);
+        try {
+            $children = $page->children();
+        } catch (\Throwable) {
+            return false;
+        }
+        if ($children === null) {
+            return false;
+        }
+        if (method_exists($children, 'count')) {
+            return $children->count() > 0;
+        }
+        if (is_iterable($children)) {
+            foreach ($children as $_) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function hasNonEmptyContent(PageInterface $page): bool
@@ -154,13 +164,92 @@ final class GravPageSource implements PageSource
         $url   = $this->hostBase . $route;
 
         return new PageRecord(
-            route:       $route,
-            url:         $url,
-            title:       (string) $page->title(),
-            contentHtml: (string) $page->content(),
-            published:   $this->toUtc((int) $page->date()),
-            modified:    $this->toUtc((int) $page->modified()),
+            route:          $route,
+            url:            $url,
+            title:          (string) $page->title(),
+            contentHtml:    (string) $page->content(),
+            published:      $this->toUtc((int) $page->date()),
+            modified:       $this->toUtc((int) $page->modified()),
+            mediaImageUrls: $this->collectMediaImages($page, $route),
         );
+    }
+
+    /**
+     * Enumerate images attached to the page via Grav's media API
+     * (files sitting next to the markdown). Returns absolute URLs.
+     * Used as a fallback for the AS 2.0 `attachment` field when the
+     * body HTML has no `<img src=…>` tag of its own.
+     *
+     * @return list<string>
+     */
+    private function collectMediaImages(PageInterface $page, string $route): array
+    {
+        if (!method_exists($page, 'media')) {
+            return [];
+        }
+        try {
+            $media = $page->media();
+        } catch (\Throwable) {
+            return [];
+        }
+        if (!is_iterable($media)) {
+            return [];
+        }
+
+        $urls = [];
+        foreach ($media as $filename => $medium) {
+            $name = \is_string($filename) ? $filename : '';
+            if (!$this->looksLikeImageFilename($name)) {
+                continue;
+            }
+            $url = $this->resolveMediumUrl($medium, $name, $route);
+            if ($url !== null) {
+                $urls[] = $url;
+            }
+        }
+        return $urls;
+    }
+
+    private function looksLikeImageFilename(string $name): bool
+    {
+        if ($name === '') {
+            return false;
+        }
+        $ext = strtolower((string) pathinfo($name, PATHINFO_EXTENSION));
+        return \in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'svg'], true);
+    }
+
+    private function resolveMediumUrl(mixed $medium, string $filename, string $route): ?string
+    {
+        // Grav Medium exposes `url()` returning an absolute path
+        // (e.g. `/user/pages/09.blog/.../foo.jpg`). Fall back to a
+        // derived route-relative URL if the medium doesn't expose
+        // anything usable.
+        if (\is_object($medium) && method_exists($medium, 'url')) {
+            try {
+                $candidate = (string) $medium->url();
+            } catch (\Throwable) {
+                $candidate = '';
+            }
+            if ($candidate !== '') {
+                return $this->makeAbsolute($candidate);
+            }
+        }
+        // Best-effort fallback: assume the file is published at the
+        // page's own route. This won't work for every theme but it's
+        // strictly better than dropping the attachment entirely.
+        return $this->makeAbsolute(rtrim($route, '/') . '/' . $filename);
+    }
+
+    private function makeAbsolute(string $url): string
+    {
+        if (str_starts_with($url, 'http://') || str_starts_with($url, 'https://')) {
+            return $url;
+        }
+        if (!str_starts_with($url, '/')) {
+            $url = '/' . $url;
+        }
+        return $this->hostBase . $url;
     }
 
     private function toUtc(int $timestamp): DateTimeImmutable

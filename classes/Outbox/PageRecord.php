@@ -13,6 +13,13 @@ use DateTimeImmutable;
  */
 final class PageRecord
 {
+    /**
+     * @param list<string> $mediaImageUrls Absolute URLs of images attached to
+     *                                     the page via Grav's media API (files
+     *                                     sitting next to the markdown). Used
+     *                                     as an `attachment` fallback when the
+     *                                     body HTML has no `<img>` tag.
+     */
     public function __construct(
         public readonly string $route,        // e.g. "/blog/first-post"
         public readonly string $url,          // absolute, e.g. "https://blog.local/blog/first-post"
@@ -20,6 +27,7 @@ final class PageRecord
         public readonly string $contentHtml,  // rendered HTML body
         public readonly DateTimeImmutable $published,
         public readonly DateTimeImmutable $modified,
+        public readonly array $mediaImageUrls = [],
     ) {
     }
 

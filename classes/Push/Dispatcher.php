@@ -138,14 +138,48 @@ final class Dispatcher
                 'connect_timeout' => self::CONNECT_TIMEOUT_SECONDS,
                 'timeout'         => self::TOTAL_TIMEOUT_SECONDS,
             ]);
-            $status = $response->getStatusCode();
-            $outcome = $this->classifier->fromStatus($status);
+            $status     = $response->getStatusCode();
+            $outcome    = $this->classifier->fromStatus($status);
+            $bodySnippet = $this->snippetFromResponse($response);
         } catch (GuzzleException $e) {
-            $status  = 0;
-            $outcome = $this->classifier->fromException();
+            $status      = 0;
+            $outcome     = $this->classifier->fromException();
+            $bodySnippet = 'transport error: ' . $e->getMessage();
+        }
+
+        if ($status < 200 || $status >= 300) {
+            // Surface what the peer actually said — Mastodon/GTS/Pleroma
+            // include a human-readable hint about why they rejected the
+            // delivery. Without this in the log, every 401 looks the
+            // same and signature-debugging is blind.
+            $this->log->warning('push non-2xx — peer rejected delivery', [
+                'queue_id'      => $record->id,
+                'inbox'         => $record->recipientInbox,
+                'status'        => $status,
+                'response_body' => $bodySnippet,
+                'sig_header'    => $signed->getHeaderLine('Signature'),
+                'date_header'   => $signed->getHeaderLine('Date'),
+                'digest_header' => $signed->getHeaderLine('Digest'),
+                'host_header'   => $signed->getHeaderLine('Host'),
+            ]);
         }
 
         $this->finalise($record, $outcome, $status, $counts);
+    }
+
+    private function snippetFromResponse(\Psr\Http\Message\ResponseInterface $response): string
+    {
+        try {
+            $body = (string) $response->getBody();
+        } catch (\Throwable) {
+            return '';
+        }
+        // First 500 chars is plenty for an HTTP error envelope; longer
+        // bodies just spam the log.
+        if (mb_strlen($body) > 500) {
+            $body = mb_substr($body, 0, 500) . '…';
+        }
+        return $body;
     }
 
     /**

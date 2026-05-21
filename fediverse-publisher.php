@@ -9,6 +9,8 @@ use Grav\Common\Plugin;
 use Grav\Plugin\FediversePublisher\Actor\ActorBuilder;
 use Grav\Plugin\FediversePublisher\Http\ActorController;
 use Grav\Plugin\FediversePublisher\Http\BlogPostNegotiator;
+use Grav\Plugin\FediversePublisher\Http\FollowersCollectionController;
+use Grav\Plugin\FediversePublisher\Http\FollowingCollectionController;
 use Grav\Plugin\FediversePublisher\Http\NodeInfoController;
 use Grav\Plugin\FediversePublisher\Http\NodeInfoDiscoveryController;
 use Grav\Plugin\FediversePublisher\Http\OutboxController;
@@ -60,7 +62,7 @@ class FediversePublisherPlugin extends Plugin
      * Plugin version reported in NodeInfo `software.version`. Bumped
      * in lockstep with the version field in blueprints.yaml.
      */
-    private const SOFTWARE_VERSION = '0.0.3';
+    private const SOFTWARE_VERSION = '0.0.4';
     private const SOFTWARE_NAME    = 'grav-fediverse-publisher';
     private const HOST_PLATFORM    = 'grav';
 
@@ -286,13 +288,29 @@ class FediversePublisherPlugin extends Plugin
         $outboxCtrl = $this->buildOutboxController($hostBase, $configArr, $actor);
         $inboxCtrl  = $this->buildInboxController($hostBase, $configArr, $actor);
 
+        // Followers/following collections — the actor JSON-LD promises
+        // these URLs. Without handlers Mastodon's profile-resolution gets
+        // a 404 and renders "0 followers" regardless of real state.
+        $pdo            = Database::connect($this->resolveDatabasePath());
+        Database::migrate($pdo);
+        $followerStore  = new FollowerStore($pdo);
+        $followersCtrl  = new FollowersCollectionController(
+            followers:    $followerStore,
+            followersUrl: $hostBase . '/activitypub/followers',
+        );
+        $followingCtrl  = new FollowingCollectionController(
+            followingUrl: $hostBase . '/activitypub/following',
+        );
+
         $router = new Router();
-        $router->get('/.well-known/webfinger', [$webfinger,        'handle']);
-        $router->get('/.well-known/nodeinfo',  [$nodeInfoDiscovery,'handle']);
-        $router->get('/nodeinfo/2.0',          [$nodeInfoCtrl,     'handle']);
-        $router->get('/activitypub/actor',     [$actorCtrl,        'handle']);
-        $router->get('/activitypub/outbox',    [$outboxCtrl,       'handle']);
-        $router->post('/activitypub/inbox',    [$inboxCtrl,        'handle']);
+        $router->get('/.well-known/webfinger',  [$webfinger,        'handle']);
+        $router->get('/.well-known/nodeinfo',   [$nodeInfoDiscovery,'handle']);
+        $router->get('/nodeinfo/2.0',           [$nodeInfoCtrl,     'handle']);
+        $router->get('/activitypub/actor',      [$actorCtrl,        'handle']);
+        $router->get('/activitypub/outbox',     [$outboxCtrl,       'handle']);
+        $router->get('/activitypub/followers',  [$followersCtrl,    'handle']);
+        $router->get('/activitypub/following',  [$followingCtrl,    'handle']);
+        $router->post('/activitypub/inbox',     [$inboxCtrl,        'handle']);
 
         return $router;
     }
@@ -368,7 +386,7 @@ class FediversePublisherPlugin extends Plugin
         $pdo        = Database::connect($this->resolveDatabasePath());
         Database::migrate($pdo);
         $clock      = new SystemClock();
-        $signer     = new RequestSigner(new Signer(), $clock);
+        $signer     = new RequestSigner(new Signer(), $clock, $this->resolveLogger());
         $keys       = new KeyStore($this->resolveKeysDir());
         $followers  = new FollowerStore($pdo);
         $queue      = new OutboundQueue($pdo);

@@ -10,6 +10,7 @@ use Grav\Plugin\FediversePublisher\Signature\FrozenClock;
 use Grav\Plugin\FediversePublisher\Signature\RequestSigner;
 use Grav\Plugin\FediversePublisher\Signature\SignatureHeader;
 use Grav\Plugin\FediversePublisher\Signature\Signer;
+use Grav\Plugin\FediversePublisher\Tests\Support\TestLogger;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use phpseclib3\Crypt\RSA;
 use PHPUnit\Framework\TestCase;
@@ -92,6 +93,56 @@ final class RequestSignerTest extends TestCase
 
         $expectedDigest = 'SHA-256=' . base64_encode(hash('sha256', $body, true));
         self::assertSame($expectedDigest, $signed->getHeaderLine('Digest'));
+    }
+
+    public function testHostHeaderIsForceSetFromUriEvenIfRequestCarriesAnotherHost(): void
+    {
+        // v0.0.4 regression guard. If something further up the chain
+        // has put a stale or wrong Host header on the request, the
+        // signer must overwrite it — otherwise we sign one value and
+        // the HTTP client sends another, and Mastodon returns 401.
+        $factory = new Psr17Factory();
+        $req = $factory->createRequest('POST', 'https://real-peer.example/inbox')
+            ->withHeader('Host', 'wrong-host.invalid')
+            ->withBody($factory->createStream('{}'));
+
+        $signed = $this->signer()->sign($req, 'https://blog.local/a#k', $this->privatePem);
+
+        self::assertSame('real-peer.example', $signed->getHeaderLine('Host'));
+    }
+
+    public function testHostHeaderOmitsDefaultHttpsPort(): void
+    {
+        $factory = new Psr17Factory();
+        $req = $factory->createRequest('POST', 'https://peer.example/inbox')
+            ->withBody($factory->createStream('{}'));
+
+        $signed = $this->signer()->sign($req, 'https://blog.local/a#k', $this->privatePem);
+
+        self::assertSame('peer.example', $signed->getHeaderLine('Host'));
+    }
+
+    public function testSignerLogsSigningStringForDiagnostics(): void
+    {
+        $logger = new TestLogger();
+        $signer = new RequestSigner(
+            new Signer(),
+            new FrozenClock(new DateTimeImmutable('2026-05-21T12:00:00Z')),
+            $logger,
+        );
+
+        $factory = new Psr17Factory();
+        $req = $factory->createRequest('POST', 'https://peer.example/inbox')
+            ->withBody($factory->createStream('{"a":1}'));
+
+        $signer->sign($req, 'https://blog.local/a#k', $this->privatePem);
+
+        self::assertNotNull($logger->lastDebug);
+        $ctx = $logger->lastDebug;
+        self::assertSame('https://blog.local/a#k', $ctx['key_id']);
+        self::assertStringContainsString('(request-target): post /inbox', $ctx['signing_string']);
+        self::assertStringContainsString('host: peer.example', $ctx['signing_string']);
+        self::assertStringStartsWith('SHA-256=', $ctx['digest']);
     }
 
     private function signer(): RequestSigner

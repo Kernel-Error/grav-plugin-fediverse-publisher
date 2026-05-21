@@ -6,6 +6,58 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed (v0.0.4 — third production-deploy bug-fix)
+
+v0.0.3 closed the SQL crash and got real Mastodon Follow activities
+accepted at the inbox layer, but two things from the v0.0.3
+changelog turned out to not actually ship, plus the new listing-page
+filter overshot, plus Mastodon rejected every outbound `Accept` with
+HTTP 401. End-to-end federation was still not working after v0.0.3.
+
+- **Followers / following routes wired into `buildRouter()`.** The
+  controllers and their unit tests landed in v0.0.3 but the actual
+  `$router->get(...)` registrations never made it into
+  `fediverse-publisher.php`. Mastodon hit both URLs during profile
+  resolution and got Grav's HTML 404, which rendered as
+  "0 followers" regardless of real state. v0.0.4 also adds a
+  source-grep `RouterWiringTest` that asserts each spec-required
+  route is registered, so this class of "unit tests green,
+  integration forgotten" miss can't happen again silently.
+- **Listing-page detection by structure, not template name.**
+  v0.0.3 keyed the listing-vs-post decision on the Twig template
+  name (`blog`/`archive`/`listing`/`collection`). Real Grav blogs
+  conventionally name their post files `blog.md` inside per-post
+  directories — same template name as the index — so the filter
+  false-positived every post. v0.0.4 detects a listing as "the
+  page has children" (`$page->children()->count() > 0`). Grav blog
+  trees are `09.blog/blog.md` (listing, has children) →
+  `09.blog/<post>/<file>.md` (post, no children); the structural
+  signal is robust against copy-pasted frontmatter artefacts.
+- **`attachment` falls back to the page's media folder.** v0.0.3
+  scanned only `<img src=…>` in the body HTML. Posts that keep
+  the hero image next to the markdown without an inline `<img>`
+  ended up with no attachment, so Mastodon couldn't render a
+  card thumbnail. `PageRecord` now carries a `mediaImageUrls`
+  field populated by `GravPageSource` from `$page->media()`;
+  `ActivityTransformer::buildAttachments()` merges body-HTML
+  references with media-folder images, deduplicating on URL.
+- **Outbound HTTP signature: defensive Host force-set + failure
+  logging.** A live Follow on the production site was met with
+  HTTP 401 from Mastodon on every retry. The signer now
+  unconditionally overwrites any existing Host header with the
+  value derived from the request URI (defensive — PSR-7
+  implementations occasionally carry an auto-derived Host that
+  diverges from URI), and emits a debug log entry containing the
+  exact signing string used. The dispatcher now logs the response
+  body, signature header, date, digest and host header on every
+  non-2xx outcome, so the next test cycle has a real Mastodon
+  rejection reason to work from instead of a status code alone.
+- **`RequestSigner` accepts an optional PSR-3 logger.** Defaults
+  to a `NullLogger` so existing tests don't have to thread one
+  through. The plugin entry's `buildDispatcher()` now passes
+  Grav's logger so the diagnostics from the previous bullet
+  actually land in `grav.log`.
+
 ### Fixed (v0.0.3 — second production-deploy bug-fix)
 
 The v0.0.2 deploy got us past the boot crash from v0.0.1 but

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Grav\Plugin\FediversePublisher\Signature;
 
 use Psr\Http\Message\RequestInterface;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 
 /**
  * Builds + signs an outbound POST so a remote inbox accepts it.
@@ -28,6 +30,7 @@ final class RequestSigner
     public function __construct(
         private readonly Signer $signer,
         private readonly Clock $clock,
+        private readonly LoggerInterface $log = new NullLogger(),
     ) {
     }
 
@@ -51,14 +54,16 @@ final class RequestSigner
         if (!$request->hasHeader('Content-Type')) {
             $request = $request->withHeader('Content-Type', 'application/activity+json');
         }
-        // Host comes from the URL.
+        // Host comes from the URL. Force-set (don't trust an existing
+        // Host header on the request) so the value we sign matches the
+        // value the underlying HTTP client puts on the wire — PSR-7
+        // implementations sometimes carry an auto-derived Host that
+        // diverges from URI when the URI gets swapped after construction.
         $uri = $request->getUri();
         $host = $uri->getPort() !== null && $uri->getPort() !== 443
             ? $uri->getHost() . ':' . $uri->getPort()
             : $uri->getHost();
-        if (!$request->hasHeader('Host')) {
-            $request = $request->withHeader('Host', $host);
-        }
+        $request = $request->withHeader('Host', $host);
 
         // Build the signing string in the exact order of SIGNED_HEADERS.
         $lines = [];
@@ -80,6 +85,18 @@ final class RequestSigner
             implode(' ', self::SIGNED_HEADERS),
             $signatureB64,
         );
+
+        // Debug log lets the dispatcher correlate a failed delivery with
+        // the exact bytes that were signed. The signature itself is
+        // truncated — only the first 12 chars are useful for matching
+        // attempts, and full signatures clutter the log.
+        $this->log->debug('outbound HTTP signature built', [
+            'key_id'         => $keyId,
+            'signing_string' => $signingString,
+            'digest'         => $digest,
+            'date'           => $now,
+            'signature_head' => substr($signatureB64, 0, 12),
+        ]);
 
         return $request->withHeader('Signature', $headerValue);
     }
