@@ -245,7 +245,7 @@ final class ActivityTransformer
 
         return [
             '@context'  => 'https://www.w3.org/ns/activitystreams',
-            'id'        => $page->url . '#create-' . $page->published->format('U'),
+            'id'        => $this->buildCreateActivityId($page),
             'type'      => 'Create',
             'actor'     => $this->actorUrl,
             'to'        => ['https://www.w3.org/ns/activitystreams#Public'],
@@ -253,5 +253,27 @@ final class ActivityTransformer
             'published' => $page->published->format('Y-m-d\TH:i:s\Z'),
             'object'    => $object,
         ];
+    }
+
+    /**
+     * Build the `Create` activity's `id` as a path-based, fragment-less
+     * URI under the post's URL — a sibling of the post, not a fragment
+     * of it. Mastodon 4.5.x indexes the activity URI and the inner
+     * `object.id` separately when they only differ by `#fragment`,
+     * which surfaced as the production "post count doubled" bug on
+     * bonn.social (5 real posts rendered as 10). Mastodon 4.6 (and
+     * later) strips the fragment before dedup; older majors don't.
+     * Path-based IDs work across all Mastodon majors, Pleroma, and
+     * GoToSocial because the activity URI no longer overlaps the
+     * object URI after fragment normalisation.
+     *
+     * Idempotency is preserved: the same post with the same `published`
+     * timestamp yields the same activity id, so re-saves don't
+     * fan-out twice (the push_queue UNIQUE constraint on
+     * (activity_id, recipient_inbox) still bites).
+     */
+    private function buildCreateActivityId(PageRecord $page): string
+    {
+        return rtrim($page->url, '/') . '/activity/create-' . $page->published->format('U');
     }
 }

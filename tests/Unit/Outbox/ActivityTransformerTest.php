@@ -40,7 +40,7 @@ final class ActivityTransformerTest extends TestCase
 
         self::assertSame('Create', $create['type']);
         self::assertSame('https://blog.local/activitypub/actor', $create['actor']);
-        self::assertSame('https://blog.local/blog/example#create-' . strtotime('2026-05-01T10:00:00Z'), $create['id']);
+        self::assertSame('https://blog.local/blog/example/activity/create-' . strtotime('2026-05-01T10:00:00Z'), $create['id']);
         self::assertSame(['https://www.w3.org/ns/activitystreams#Public'], $create['to']);
 
         self::assertArrayHasKey('object', $create);
@@ -58,6 +58,39 @@ final class ActivityTransformerTest extends TestCase
         $b = $this->transformer()->transformCreate($this->page(), false);
 
         self::assertSame($a['id'], $b['id']);
+    }
+
+    public function testCreateIdIsFragmentLessAndDistinctFromObjectId(): void
+    {
+        // Mastodon 4.5.x indexes activity URI and object URI as
+        // separate Status rows when they only differ by `#fragment`.
+        // The bonn.social production deploy showed this as "5 real
+        // posts displayed as 10". Activity id must be a sibling of
+        // the object URL, not a fragment of it.
+        $create = $this->transformer()->transformCreate($this->page(), false);
+
+        self::assertStringNotContainsString('#', $create['id']);
+        self::assertNotSame($create['id'], $create['object']['id']);
+        self::assertStringStartsWith($create['object']['id'] . '/', $create['id']);
+    }
+
+    public function testCreateIdRespectsTrailingSlashOnObjectUrl(): void
+    {
+        // Some Grav route configurations append a trailing slash to
+        // page URLs. The activity-id builder must not produce a
+        // double-slash like `https://…/blog/foo//activity/create-…`.
+        $page = new PageRecord(
+            route:       '/blog/example',
+            url:         'https://blog.local/blog/example/',
+            title:       'Example',
+            contentHtml: '<p>hi</p>',
+            published:   new DateTimeImmutable('2026-05-01T10:00:00Z'),
+            modified:    new DateTimeImmutable('2026-05-02T10:00:00Z'),
+        );
+        $create = $this->transformer()->transformCreate($page, false);
+
+        self::assertStringNotContainsString('//activity/', $create['id']);
+        self::assertStringEndsWith('/activity/create-' . strtotime('2026-05-01T10:00:00Z'), $create['id']);
     }
 
     public function testJsonRoundtripsCleanly(): void
