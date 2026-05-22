@@ -6,6 +6,104 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed (v0.0.7 — broadcast pipeline + 4.5-compat + hashtags)
+
+v0.0.6 production deploy on beratung-rheinbach.de got the follow
+handshake working end-to-end against real Mastodon — first time
+the project closed that loop in five iterations. But the real
+broadcast test surfaced a showstopper, plus two follow-on issues
+the operator caught while spot-checking federated rendering.
+
+- **`onAdminAfterSave` doesn't fire under Grav 1.10+ Admin.**
+  The Admin since 1.10 (default flex-objects plugin) routes page
+  saves through the Flex pipeline, which fires `onFlexAfterSave`
+  instead — see
+  `user/plugins/flex-objects/classes/Admin/AdminController.php:968`.
+  The plugin subscribed only to the classic event, so the entire
+  outbound broadcast for new posts was silently dead on any
+  modern Grav install. Working follow-handshake and outbox crawl
+  masked it until somebody actually published a real post.
+  Fixed by subscribing to both events; the
+  `(activity_id, recipient_inbox)` UNIQUE constraint makes
+  double-fire idempotent. Plus an unconditional diagnostic log
+  at handler entry (object class + best-effort route + event
+  keys) so the next regression of this class is visible in one
+  log line instead of taking 30 min to track down. Plus a small
+  `looksLikePage()` duck-type replacing the strict
+  `method_exists()` chain — classic Page and Flex PageObject
+  both expose the same surface but don't share an instanceof
+  parent we could match cheaply. New `EventWiringTest`
+  source-grep guards against the regression class.
+
+- **Mastodon 4.5.x doubled the post count.** A second follow
+  from bonn.social (Mastodon 4.5.9 LTS) showed the actor profile
+  with 10 posts instead of 5. Root cause: the `Create` activity
+  `id` was `…/<slug>#create-<unix>` (with fragment), the inner
+  `object.id` was `…/<slug>` (no fragment). Mastodon 4.5 indexes
+  both as separate Status rows; 4.6+ strips the fragment before
+  dedup. v0.0.7 emits the activity id as a fragment-less
+  sibling path (`…/<slug>/activity/create-<unix>`); idempotency
+  preserved since same page + same publish time still yields
+  the same id. Three new tests pin the distinct-from-object,
+  fragment-less, and trailing-slash-safe properties.
+
+- **AS 2.0 `updated` must not predate `published`** (regression
+  guard inherited from v0.0.6). Already shipped; kept in the
+  changelog because the new broadcast pipeline now exercises
+  it on every page save.
+
+- **`federation.public_only` was a dead config knob.** Declared
+  in blueprints.yaml since v0.0.1, never read by any code.
+  v0.0.7 still doesn't implement it (the implementation is an
+  open design question — Grav's "access" frontmatter is the
+  closest analogue but the semantics differ per theme), so the
+  field is removed from blueprints + default yaml to avoid the
+  "I ticked it, why does it not work" trap. Re-add when a
+  concrete semantic is decided.
+
+### Added (v0.0.7)
+
+- **Hashtag federation.** Grav's `taxonomy.tag` frontmatter is
+  now propagated as AS 2.0 `Hashtag` objects on the Article /
+  Note. v0.0.6 dropped the taxonomy entirely; the operator's
+  estimate "this costs roughly 80% of the broadcast value" was
+  not exaggeration — hashtag indexing on Mastodon's per-instance
+  `#tag` timeline is the primary amplification path for posts
+  from an actor with zero followers on day one. Implementation
+  mirrors the v0.0.6 attachment pattern: PageRecord gains
+  `tags: list<string>`, GravPageSource extracts defensively,
+  ActivityTransformer emits Hashtag with `#`-prefixed `name`
+  (required for Mastodon indexing) and URL-encoded `href`
+  pointing at Grav's per-tag landing page. Plugin entry derives
+  the tag-base URL from `blog.path_filter` automatically — no
+  new config knob. Tags whose name contains whitespace are
+  skipped (Mastodon's parser would mis-index). Six new tests.
+
+- **`bin/plugin fediverse-publisher broadcast:post <route>`** —
+  manual recovery CLI for posts that were saved under v0.0.6
+  and therefore never reached the queue. Resolves the route
+  through the same `GravPageSource` the broadcaster uses, calls
+  `OutboundBroadcaster::broadcast()` directly. Idempotent via
+  the queue UNIQUE constraint, error paths are operator-friendly.
+
+- **`bin/plugin fediverse-publisher push:purge-dead`** —
+  operator housekeeping. Drops terminal `dead` rows from
+  push_queue. Optional `--older-than=N` flag keeps recent
+  failures visible for debugging while purging the ancient
+  stragglers. v0.0.6 production carried two dead rows from the
+  v0.0.3/v0.0.4 broken-localhost-keyId attempts; this is the
+  cron-friendly way to keep the table tidy across deploy
+  iterations. Four new tests on the storage method.
+
+### Documentation (v0.0.7)
+
+- README troubleshooting gains a "Multi-site setups" entry that
+  reproduces the exact symptom from the v0.0.6 deploy: Admin UI
+  writes the plugin config to `user/<host>/config/plugins/`
+  while the CLI reads only `user/config/plugins/`, so web
+  endpoints come up green but `flush-queue` silently bails
+  with "plugin not enabled". Two workarounds documented.
+
 ### Fixed (v0.0.6 — local E2E smoke catch)
 
 Found during the v0.0.5 pre-production end-to-end run against

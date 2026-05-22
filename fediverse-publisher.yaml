@@ -23,7 +23,6 @@ federation:
   # at `http://localhost` and Mastodon (rightly) refuses with 401.
   # No trailing slash. Example: https://www.example.com
   canonical_host: ''
-  public_only: true
   # Dev-only: CIDR ranges that override the SSRF-reserved-IP block in
   # the actor-key fetcher. Production keeps this empty — the whole
   # point of the block is to refuse federation to private IPs.
