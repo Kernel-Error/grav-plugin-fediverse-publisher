@@ -29,6 +29,32 @@ final class OutboundQueueTest extends TestCase
         self::assertSame(1, $this->countRows());
     }
 
+    public function testEnqueueReturnsTrueOnFirstInsertFalseOnDedup(): void
+    {
+        // v0.0.9 contract: enqueue() returns true if the INSERT
+        // actually wrote a new row, false if the UNIQUE constraint
+        // on (activity_id, recipient_inbox) dropped it. The
+        // broadcaster uses this to distinguish "fresh fan-out"
+        // from "re-save deduped" in the log line, which v0.0.8
+        // couldn't tell apart.
+        $q = new OutboundQueue($this->pdo);
+        $a = ['id' => 'https://blog.local/x#create-1', 'type' => 'Create'];
+
+        self::assertTrue(
+            $q->enqueue($a, 'https://peer.example/inbox', 'https://blog.local/actor'),
+            'first enqueue of a new (activity, recipient) pair should report inserted=true'
+        );
+        self::assertFalse(
+            $q->enqueue($a, 'https://peer.example/inbox', 'https://blog.local/actor'),
+            'second enqueue of the same pair should report inserted=false (deduped by UNIQUE)'
+        );
+        // Same activity, different recipient → fresh row.
+        self::assertTrue(
+            $q->enqueue($a, 'https://peer2.example/inbox', 'https://blog.local/actor'),
+            'same activity to a different recipient should still be a fresh insert'
+        );
+    }
+
     public function testClaimBatchReturnsPendingRows(): void
     {
         $q = $this->seedQueue(3);

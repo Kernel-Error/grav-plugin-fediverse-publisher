@@ -101,17 +101,42 @@ final class BroadcastPostCommand extends ConsoleCommand
             . trim((string) \preg_replace('#/\*\*?$#', '', $blogFilter), '/');
 
         $pages = new GravPageSource($grav['pages'], $blogFilter, $hostBase);
-        $record = $pages->findByRoute($route);
-        if ($record === null) {
+
+        // Resolve via Grav's pages collection FIRST so we can tell
+        // the operator whether the route even exists. Then hand the
+        // PageInterface to findByPage() which itemises which
+        // federatability check rejected it. The v0.0.8 deploy spent
+        // an hour trying to figure out which of three possible
+        // reasons explained the "no federatable page" error — this
+        // makes the answer one line.
+        $page = $grav['pages']->find($route);
+        if (!$page instanceof \Grav\Common\Page\Interfaces\PageInterface) {
             $this->output->writeln(\sprintf(
-                '<error>No federatable page at route %s. Either the path doesn\'t match the blog '
-                . 'filter (%s), the page isn\'t published, or it has children (listing pages are '
-                . 'filtered out by design).</error>',
-                $route,
-                $blogFilter
+                '<error>No page at route %s — Grav\'s page tree has no entry for that path. '
+                . 'Either the markdown file is missing, the path is mistyped, or the page cache '
+                . 'is stale (try `bin/grav clearcache --all`).</error>',
+                $route
             ));
             return 1;
         }
+
+        $result = $pages->findByPage($page);
+        if (\is_string($result)) {
+            $reason = match ($result) {
+                'not_under_prefix'           => "route {$route} is not under the configured blog filter ({$blogFilter})",
+                'not_published_or_routable'  => "page is not published or not routable",
+                'is_listing'                 => "page is a listing (has child pages) — listing pages are filtered out by design",
+                'empty_content'              => "page has no rendered content (empty body after HTML strip)",
+                default                      => "unrecognized federatability bail ({$result})",
+            };
+            $this->output->writeln(\sprintf(
+                '<error>Page %s exists in the tree but is not federatable: %s.</error>',
+                $route,
+                $reason
+            ));
+            return 1;
+        }
+        $record = $result;
 
         $locator  = $grav['locator'];
         $userData = (string) $locator->findResource('user-data://', true);

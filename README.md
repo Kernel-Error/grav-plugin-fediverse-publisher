@@ -244,6 +244,18 @@ release). See that directory's `README.md` for the runbook.
   the relevant caches) rather than via yaml. If you must use yaml:
   `bin/grav clearcache --all` followed by an FPM restart (not
   reload).
+- **New post created via Admin doesn't federate** — the most
+  common cause: Grav-Admin's New Page form defaults the parent
+  to the site root. If the operator hits Save without explicitly
+  choosing Parent = Blog, the new page lands at `/<slug>`
+  instead of `/blog/<slug>` and the plugin's path filter
+  (default `/blog/**`) correctly skips it. Fix: in the New
+  Page form, set Parent to your blog folder before saving. The
+  symptom is visible in `grav.log` as
+  `fediverse-publisher: bail — not_under_prefix` with the
+  actual route in the context block — v0.0.9 logs every bail
+  reason explicitly so `grep fediverse-publisher` answers
+  "why didn't my post federate?" in one line.
 - **Multi-site setups: web endpoints respond 200 but
   `flush-queue` says "plugin not enabled"** — Grav supports
   per-host config overrides under `user/<host>/config/plugins/`.

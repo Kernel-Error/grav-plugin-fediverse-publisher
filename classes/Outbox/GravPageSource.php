@@ -32,33 +32,29 @@ final class GravPageSource implements PageSource
     public function listFederatable(): array
     {
         $records = [];
-        $prefix = $this->normalisedPrefix();
-
         foreach ($this->pages->all() as $page) {
             if (!$page instanceof PageInterface) {
                 continue;
             }
-            if (!$this->isFederatable($page, $prefix)) {
+            if (PageSaveDiagnostics::classifyFederatability($page, $this->pathFilter) !== 'ok') {
                 continue;
             }
             $records[] = $this->buildRecord($page);
         }
-
         usort(
             $records,
             static fn (PageRecord $a, PageRecord $b): int
                 => $b->published <=> $a->published
         );
-
         return $records;
     }
 
     public function findByRoute(string $route): ?PageRecord
     {
-        $prefix = $this->normalisedPrefix();
+        $prefix = PageSaveDiagnostics::normalisedPrefix($this->pathFilter);
 
         // Cheap rejection before we ask Grav to resolve the page.
-        if ($prefix !== '' && !$this->routeUnderPrefix($route, $prefix)) {
+        if ($prefix !== '' && !PageSaveDiagnostics::routeUnderPrefix($route, $prefix)) {
             return null;
         }
 
@@ -66,96 +62,45 @@ final class GravPageSource implements PageSource
         if (!$page instanceof PageInterface) {
             return null;
         }
-        if (!$this->isFederatable($page, $prefix)) {
+        if (PageSaveDiagnostics::classifyFederatability($page, $this->pathFilter) !== 'ok') {
             return null;
         }
         return $this->buildRecord($page);
     }
 
     /**
-     * Strip a trailing `/**` or `/*` so callers can write the natural
-     * `/blog/**` form in their config.
+     * Build a PageRecord directly from an already-resolved PageInterface,
+     * skipping the `$pages->find($route)` lookup. The page-save event
+     * hands us the PageInterface directly — going back through the
+     * `$pages` collection at that point hit Grav's stale pre-save
+     * cache and returned null, which is what blocked v0.0.8's
+     * auto-broadcast for fresh posts even though `listFederatable()`
+     * via a subsequent web request DID see the same page (different
+     * request, different cache state).
+     *
+     * Returns one of:
+     *   - PageRecord on the happy path
+     *   - The string code for whichever filter rejected the page:
+     *       'not_under_prefix', 'not_published_or_routable',
+     *       'is_listing', 'empty_content'
+     * The caller decides how loud to be about a rejection (the
+     * page-save handler logs each branch at INFO so future "why
+     * didn't my post federate?" questions are a one-grep answer).
+     *
+     * All three federatability paths (listFederatable, findByRoute,
+     * findByPage) now share a single source of truth via
+     * PageSaveDiagnostics::classifyFederatability — the v0.0.8
+     * production bug was a footprint of having inconsistent logic
+     * in two places where the listing-filter behaved differently
+     * for fresh-vs-cached pages.
      */
-    private function normalisedPrefix(): string
+    public function findByPage(PageInterface $page): PageRecord|string
     {
-        $prefix = $this->pathFilter;
-        $prefix = (string) preg_replace('#/\*\*?$#', '', $prefix);
-        return rtrim($prefix, '/');
-    }
-
-    private function routeUnderPrefix(string $route, string $prefix): bool
-    {
-        if ($prefix === '') {
-            return true;
+        $verdict = PageSaveDiagnostics::classifyFederatability($page, $this->pathFilter);
+        if ($verdict !== 'ok') {
+            return $verdict;
         }
-        return $route === $prefix
-            || str_starts_with($route, $prefix . '/');
-    }
-
-    private function isFederatable(PageInterface $page, string $prefix): bool
-    {
-        if (!$page->routable() || !$page->published()) {
-            return false;
-        }
-        $route = (string) $page->route();
-        if (!$this->routeUnderPrefix($route, $prefix)) {
-            return false;
-        }
-        // v0.0.4: detect listing pages by structure, not by template
-        // name or frontmatter content. Real-world blogs name their
-        // post files `blog.md` inside per-post directories, which is
-        // also the conventional listing-template name — keying on
-        // template name alone false-positives every post.
-        //
-        // A page is a listing iff it has children. The Grav blog
-        // skeleton structures the tree as `09.blog/blog.md` (the
-        // listing, has children) → `09.blog/<post>/<file>.md`
-        // (a post, no children). This is robust against
-        // copy-pasted frontmatter like `@self.children`.
-        if ($this->hasChildren($page)) {
-            return false;
-        }
-        if (!$this->hasNonEmptyContent($page)) {
-            return false;
-        }
-        return true;
-    }
-
-    private function hasChildren(PageInterface $page): bool
-    {
-        if (!method_exists($page, 'children')) {
-            return false;
-        }
-        try {
-            $children = $page->children();
-        } catch (\Throwable) {
-            return false;
-        }
-        if ($children === null) {
-            return false;
-        }
-        if (method_exists($children, 'count')) {
-            return $children->count() > 0;
-        }
-        if (is_iterable($children)) {
-            foreach ($children as $_) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private function hasNonEmptyContent(PageInterface $page): bool
-    {
-        $html = '';
-        try {
-            $html = (string) $page->content();
-        } catch (\Throwable) {
-            return false;
-        }
-        $text = (string) preg_replace('/<[^>]*>/', '', $html);
-        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        return trim($text) !== '';
+        return $this->buildRecord($page);
     }
 
     private function buildRecord(PageInterface $page): PageRecord

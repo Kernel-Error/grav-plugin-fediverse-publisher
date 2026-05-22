@@ -208,6 +208,141 @@ final class PageSaveDiagnosticsTest extends TestCase
         self::assertFalse(PageSaveDiagnostics::looksLikePage(42));
     }
 
+    public function testClassifyFederatabilityHappyPath(): void
+    {
+        $page = $this->fakePage('/blog/foo', published: true, routable: true, content: '<p>hi</p>');
+        self::assertSame('ok', PageSaveDiagnostics::classifyFederatability($page, '/blog/**'));
+    }
+
+    public function testClassifyFederatabilityRejectsRouteOutsidePrefix(): void
+    {
+        $page = $this->fakePage('/news/foo', published: true, routable: true, content: '<p>hi</p>');
+        self::assertSame('not_under_prefix', PageSaveDiagnostics::classifyFederatability($page, '/blog/**'));
+    }
+
+    public function testClassifyFederatabilityRejectsUnpublished(): void
+    {
+        $page = $this->fakePage('/blog/foo', published: false, routable: true, content: '<p>hi</p>');
+        self::assertSame('not_published_or_routable', PageSaveDiagnostics::classifyFederatability($page, '/blog/**'));
+    }
+
+    public function testClassifyFederatabilityRejectsNonRoutable(): void
+    {
+        $page = $this->fakePage('/blog/foo', published: true, routable: false, content: '<p>hi</p>');
+        self::assertSame('not_published_or_routable', PageSaveDiagnostics::classifyFederatability($page, '/blog/**'));
+    }
+
+    public function testClassifyFederatabilityRejectsListingByChildrenCount(): void
+    {
+        // Listing page = has children. Grav blog convention:
+        // /blog/blog.md sits above /blog/<post>/blog.md.
+        $page = new class () {
+            public function route(): string
+            {
+                return '/blog';
+            }
+            public function published(): bool
+            {
+                return true;
+            }
+            public function routable(): bool
+            {
+                return true;
+            }
+            public function content(): string
+            {
+                return '<p>blog index</p>';
+            }
+            public function children(): object
+            {
+                return new class () {
+                    public function count(): int
+                    {
+                        return 5;
+                    }
+                };
+            }
+        };
+        self::assertSame('is_listing', PageSaveDiagnostics::classifyFederatability($page, '/blog/**'));
+    }
+
+    public function testClassifyFederatabilityRejectsEmptyContent(): void
+    {
+        $page = $this->fakePage('/blog/foo', published: true, routable: true, content: '<p>   </p>');
+        self::assertSame('empty_content', PageSaveDiagnostics::classifyFederatability($page, '/blog/**'));
+    }
+
+    public function testClassifyFederatabilityPrefixOrderPrefersRouteOver(): void
+    {
+        // If both route AND published would bail, route-not-under-prefix
+        // is reported first (cheaper, more informative for the operator).
+        $page = $this->fakePage('/news/foo', published: false, routable: true, content: '<p>hi</p>');
+        self::assertSame('not_under_prefix', PageSaveDiagnostics::classifyFederatability($page, '/blog/**'));
+    }
+
+    public function testNormalisedPrefixStripsGlobSuffix(): void
+    {
+        self::assertSame('/blog', PageSaveDiagnostics::normalisedPrefix('/blog/**'));
+        self::assertSame('/blog', PageSaveDiagnostics::normalisedPrefix('/blog/*'));
+        self::assertSame('/blog', PageSaveDiagnostics::normalisedPrefix('/blog/'));
+        self::assertSame('/blog', PageSaveDiagnostics::normalisedPrefix('/blog'));
+        self::assertSame('', PageSaveDiagnostics::normalisedPrefix(''));
+    }
+
+    public function testRouteUnderPrefixMatchesExactAndChildren(): void
+    {
+        self::assertTrue(PageSaveDiagnostics::routeUnderPrefix('/blog', '/blog'));
+        self::assertTrue(PageSaveDiagnostics::routeUnderPrefix('/blog/foo', '/blog'));
+        self::assertFalse(PageSaveDiagnostics::routeUnderPrefix('/news/foo', '/blog'));
+        // Empty prefix matches everything (filter off)
+        self::assertTrue(PageSaveDiagnostics::routeUnderPrefix('/anywhere', ''));
+        // Prefix-collision guard: `/blogger` is NOT under `/blog`
+        self::assertFalse(PageSaveDiagnostics::routeUnderPrefix('/blogger', '/blog'));
+    }
+
+    /**
+     * Build a stand-in for Grav Page / Flex PageObject with the
+     * minimum surface classifyFederatability uses. Returns an
+     * anonymous class so each test gets an isolated instance.
+     */
+    private function fakePage(string $route, bool $published, bool $routable, string $content): object
+    {
+        return new class ($route, $published, $routable, $content) {
+            public function __construct(
+                private readonly string $r,
+                private readonly bool $p,
+                private readonly bool $rt,
+                private readonly string $c,
+            ) {
+            }
+            public function route(): string
+            {
+                return $this->r;
+            }
+            public function published(): bool
+            {
+                return $this->p;
+            }
+            public function routable(): bool
+            {
+                return $this->rt;
+            }
+            public function content(): string
+            {
+                return $this->c;
+            }
+            public function children(): object
+            {
+                return new class () {
+                    public function count(): int
+                    {
+                        return 0;
+                    }
+                };
+            }
+        };
+    }
+
     public function testLooksLikePageRejectsObjectMissingOneMethod(): void
     {
         // route() + published() present but no routable()

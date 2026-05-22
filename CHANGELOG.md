@@ -6,6 +6,74 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed (v0.0.9 — broadcast pipeline actually runs on fresh saves)
+
+v0.0.8 deploy proved the handler runs (no more iterator_to_array
+fatal) but `GravPageSource::findByRoute()` returned null for a
+freshly-saved post even though `listFederatable()` from the same
+class enumerated the same post fine via the outbox endpoint. Root
+cause: Grav's `$pages` collection holds a stale pre-save snapshot
+at the moment `onPageSaved` fires, so `$pages->find($route)`
+returns null — but the SAME `PageObject` is already sitting in
+the event payload. We were doing a tree lookup we didn't need.
+
+- **`GravPageSource::findByPage(PageInterface)`** — new method
+  that builds a PageRecord directly from the event's
+  PageInterface, bypassing the stale `$pages` collection. The
+  v0.0.6→v0.0.8 production cycle blocked here without a clear
+  log trail; v0.0.9 turns each rejection into an explicit
+  string code: `not_under_prefix`, `not_published_or_routable`,
+  `is_listing`, `empty_content`.
+- **Federatability decision is now single-source.** Extracted
+  into `PageSaveDiagnostics::classifyFederatability()` — pure,
+  duck-typed, unit-testable. `listFederatable()`, `findByRoute()`,
+  and `findByPage()` all delegate to it, so the v0.0.8 footgun
+  (inconsistent listing-filter behaviour between two paths) is
+  structurally impossible to recreate. 9 new tests cover the
+  matrix.
+- **Per-bail INFO logging in `onPageSaved`.** Every silent
+  `return` now writes a log line naming WHY it bailed. The v0.0.8
+  deploy spent an hour theorising over five possible reasons;
+  v0.0.9 makes future "why didn't my post federate?" a one-grep
+  answer.
+- **Defensive try/catch around the broadcast call.** Codex
+  round-9 flagged this: even after `classifyFederatability` blesses
+  the page, `buildRecord()` pokes `title()`/`content()`/`date()`/
+  `modified()` — methods that could throw on a fresh Flex object.
+  Without the catch, that exception would propagate to Grav-Admin
+  and we'd see a v0.0.7-style 500 again. Now it degrades to a
+  WARNING log entry; the plugin never breaks the host site.
+- **`$event['page']` fallback for the event payload.** Some
+  Flex/Admin save paths use `page` instead of `object` as the
+  payload key. Try `object` first (canonical), fall through.
+
+### Changed (v0.0.9)
+
+- **`OutboundQueue::enqueue()` now returns `bool`** — true if a
+  new row was inserted, false if the UNIQUE constraint dropped
+  the insert because the same activity+recipient pair was
+  already queued. v0.0.8 logged "broadcast enqueued, fan_out=2"
+  on both a fresh broadcast AND a re-save of the same post, so
+  the operator couldn't tell the difference. Broadcaster now
+  emits one of three distinct log lines: `broadcast enqueued`
+  (all-fresh), `broadcast enqueued — partial` (some new, some
+  deduped), `broadcast deduped — activity already queued for
+  all followers` (re-save of an unchanged post).
+- **`broadcast:post` CLI itemises the failure reason.** The
+  three-cause riddle in v0.0.7/8 ("either path doesn't match,
+  or page isn't published, or has children") now names the
+  specific check that failed.
+
+### Documentation (v0.0.9)
+
+- README troubleshooting gains a "post created at the wrong
+  hierarchy depth" entry: Grav-Admin's New Page form defaults
+  the parent to the site root, which means posts created
+  without explicitly setting Parent = Blog land at
+  `/<slug>` instead of `/blog/<slug>` and miss the path filter.
+  The plugin can't auto-detect this (the operator's hierarchy
+  is their own choice), but the symptom is now documented.
+
 ### Fixed (v0.0.8 — hotfix: diagnostic crashes every Admin save)
 
 v0.0.7's broadcast pipeline change (subscribing to `onFlexAfterSave`

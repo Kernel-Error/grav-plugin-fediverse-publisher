@@ -36,7 +36,8 @@ final class OutboxBroadcaster
     }
 
     /**
-     * @return int rows actually enqueued (excludes duplicates)
+     * @return int newly-inserted rows (excludes duplicates dropped by
+     *             the UNIQUE constraint on activity_id+recipient_inbox)
      */
     public function broadcast(PageRecord $page): int
     {
@@ -51,23 +52,48 @@ final class OutboxBroadcaster
         $asArticle = $page->charCount() > $this->noteThreshold;
         $create    = $this->transformer->transformCreate($page, $asArticle);
 
-        $enqueued = 0;
+        $inserted  = 0;
+        $deduped   = 0;
         foreach ($followers as $row) {
-            // The queue is idempotent on (activity_id, recipient_inbox)
-            // so we just call it for each follower.
-            $this->queue->enqueue(
+            $wasNew = $this->queue->enqueue(
                 activity:       $create,
                 recipientInbox: $row['inbox_url'],
                 actor:          $this->localActorUrl,
             );
-            $enqueued++;
+            if ($wasNew) {
+                $inserted++;
+            } else {
+                $deduped++;
+            }
         }
 
-        $this->log->info('broadcast enqueued', [
-            'route'    => $page->route,
-            'type'     => $asArticle ? 'Article' : 'Note',
-            'fan_out'  => $enqueued,
-        ]);
-        return $enqueued;
+        // Distinguish three outcomes so the operator can read the log
+        // and immediately tell whether anything actually went out.
+        // The v0.0.8 deploy had no way to distinguish a re-save (every
+        // row deduped by UNIQUE constraint, "nothing happened") from
+        // a broken hook ("handler didn't fire"); both looked identical
+        // in grav.log.
+        if ($inserted === 0) {
+            $this->log->info('broadcast deduped — activity already queued for all followers', [
+                'route'        => $page->route,
+                'type'         => $asArticle ? 'Article' : 'Note',
+                'activity_id'  => $create['id'] ?? null,
+                'follower_count' => $deduped,
+            ]);
+        } elseif ($deduped > 0) {
+            $this->log->info('broadcast enqueued — partial (some followers already had it)', [
+                'route'    => $page->route,
+                'type'     => $asArticle ? 'Article' : 'Note',
+                'new'      => $inserted,
+                'deduped'  => $deduped,
+            ]);
+        } else {
+            $this->log->info('broadcast enqueued', [
+                'route'    => $page->route,
+                'type'     => $asArticle ? 'Article' : 'Note',
+                'fan_out'  => $inserted,
+            ]);
+        }
+        return $inserted;
     }
 }

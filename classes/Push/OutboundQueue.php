@@ -52,11 +52,19 @@ final class OutboundQueue
     /**
      * Enqueue an activity for one recipient. Idempotent on
      * (activity_id, recipient_inbox) per ADR-003 R2-1: re-enqueueing
-     * the same pair is a no-op.
+     * the same pair is silently dropped at the SQLite layer.
+     *
+     * Returns `true` if a new row was inserted, `false` if the UNIQUE
+     * constraint dropped the insert because the same activity is
+     * already in the queue. Callers (OutboxBroadcaster, the CLI) use
+     * this to distinguish "fresh broadcast" from "already-known
+     * activity, deduped" — without the distinction, operators see
+     * "broadcast enqueued, fan_out=2" on a re-save and can't tell
+     * whether the plugin sent something new or silently no-op'd.
      *
      * @param array<string, mixed> $activity AS 2.0, unsigned
      */
-    public function enqueue(array $activity, string $recipientInbox, string $actor): void
+    public function enqueue(array $activity, string $recipientInbox, string $actor): bool
     {
         $now = time();
         $payload = (string) json_encode($activity, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
@@ -73,6 +81,7 @@ final class OutboundQueue
             ':payload' => $payload,
             ':ts'      => $now,
         ]);
+        return $stmt->rowCount() === 1;
     }
 
     /**

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Grav\Plugin;
 
 use Composer\Autoload\ClassLoader;
+use Grav\Common\Page\Interfaces\PageInterface;
 use Grav\Common\Plugin;
 use Grav\Plugin\FediversePublisher\Actor\ActorBuilder;
 use Grav\Plugin\FediversePublisher\Http\ActorController;
@@ -63,7 +64,7 @@ class FediversePublisherPlugin extends Plugin
      * Plugin version reported in NodeInfo `software.version`. Bumped
      * in lockstep with the version field in blueprints.yaml.
      */
-    private const SOFTWARE_VERSION = '0.0.8';
+    private const SOFTWARE_VERSION = '0.0.9';
     private const SOFTWARE_NAME    = 'grav-fediverse-publisher';
     private const HOST_PLATFORM    = 'grav';
 
@@ -172,30 +173,53 @@ class FediversePublisherPlugin extends Plugin
         // which crashed every Admin save in v0.0.7 before this fix.
         // The diagnostic-building logic is now in PageSaveDiagnostics
         // (pure, unit-tested) so this entry-point stays trivial.
-        $object = $event['object'] ?? null;
+        // `object` is the canonical key on both `onAdminAfterSave`
+        // and `onFlexAfterSave`. Some less-common Admin save paths
+        // (and discussions on the Grav forum about Flex variants)
+        // use `page` instead; fall through to it as a belt-and-
+        // braces.
+        $object = $event['object'] ?? $event['page'] ?? null;
         $log = $this->grav['log'] ?? null;
-        if ($log instanceof LoggerInterface) {
+        $isLogger = $log instanceof LoggerInterface;
+        if ($isLogger) {
             $log->info(
                 'fediverse-publisher: page-save event received',
                 PageSaveDiagnostics::buildContext($object, $event['type'] ?? null),
             );
         }
 
+        // v0.0.9: every bail below logs WHY at INFO. Five bail-
+        // branches, five log entries, one per reason. The v0.0.8
+        // deploy spent an hour theorising over a silent return —
+        // this turns every future "why didn't my post federate?"
+        // question into a single `grep fediverse-publisher
+        // user/logs/grav.log` answer.
         if ($this->preflight === null || !$this->preflight->isHealthy()) {
+            if ($isLogger) {
+                $log->info('fediverse-publisher: bail — preflight not healthy');
+            }
             return;
         }
         if (!PageSaveDiagnostics::looksLikePage($object)) {
-            return;
-        }
-        // `$object` is duck-typed via looksLikePage(); narrow for
-        // PHPStan by asserting it has the methods we'll call.
-        /** @var object{route():mixed,published():mixed,routable():mixed} $object */
-        if (!$object->published() || !$object->routable()) {
+            if ($isLogger) {
+                $log->info('fediverse-publisher: bail — event object is not a page', [
+                    'object_class' => \is_object($object) ? \get_class($object) : \gettype($object),
+                ]);
+            }
             return;
         }
 
-        $route = (string) $object->route();
-        if ($route === '') {
+        // PageInterface is the shared surface of classic Page and
+        // Flex PageObject. The event's $object always implements it
+        // when looksLikePage() is true, but PHPStan can't infer
+        // that from the duck-type so we narrow explicitly.
+        if (!$object instanceof PageInterface) {
+            if ($isLogger) {
+                $log->info(
+                    'fediverse-publisher: bail — object passes ducktype but not PageInterface',
+                    ['object_class' => \get_class($object)],
+                );
+            }
             return;
         }
 
@@ -206,12 +230,48 @@ class FediversePublisherPlugin extends Plugin
             $this->configStr($configArr, 'blog.path_filter') ?: '/blog/**',
             $hostBase,
         );
-        $record = $pages->findByRoute($route);
-        if ($record === null) {
-            return;     // not under our blog filter
-        }
 
-        $this->buildBroadcaster()->broadcast($record);
+        // findByPage() uses the PageInterface from the event directly
+        // instead of going back through `$pages->find($route)`. The
+        // v0.0.8 production "outbox lists it but findByRoute returns
+        // null" mystery was Grav's $pages collection holding a stale
+        // pre-save snapshot at handler time — the page that
+        // `PageObject->save()` just wrote to disk isn't in the
+        // collection yet, but the SAME PageObject is sitting in
+        // `$event['object']`. Source it from there and we sidestep
+        // the cache divergence entirely.
+        // findByPage AND the subsequent buildBroadcaster()->broadcast()
+        // call wrapped in try/catch. Codex round-9 review flagged
+        // this as a v0.0.7-style regression class: a fresh Flex
+        // PageObject may be "page-like enough" for the routing
+        // duck-type checks but throw when buildRecord() pokes
+        // title()/content()/date()/modified(). Without the catch,
+        // any such throw propagates up out of the handler and the
+        // operator sees a 500 on Admin save again. Plugin must
+        // never break the host site — degrade to a logged bail
+        // instead.
+        try {
+            $result = $pages->findByPage($object);
+            if (\is_string($result)) {
+                if ($isLogger) {
+                    $log->info("fediverse-publisher: bail — {$result}", [
+                        'route' => PageSaveDiagnostics::bestEffortRoute($object),
+                    ]);
+                }
+                return;
+            }
+            $this->buildBroadcaster()->broadcast($result);
+        } catch (\Throwable $e) {
+            if ($isLogger) {
+                $log->warning('fediverse-publisher: broadcaster crashed — degrading to no-op', [
+                    'route' => PageSaveDiagnostics::bestEffortRoute($object),
+                    'error' => $e->getMessage(),
+                    'class' => \get_class($e),
+                ]);
+            } else {
+                \error_log('fediverse-publisher: broadcaster crashed: ' . $e->getMessage());
+            }
+        }
     }
 
     /**

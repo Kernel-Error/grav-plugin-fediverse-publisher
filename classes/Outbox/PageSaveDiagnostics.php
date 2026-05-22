@@ -87,6 +87,100 @@ final class PageSaveDiagnostics
         return true;
     }
 
+    /**
+     * Classify a page's federatability into one of:
+     *   'ok'                        — federate it
+     *   'not_under_prefix'          — route doesn't match the
+     *                                  configured blog filter
+     *   'not_published_or_routable' — `published()` or `routable()`
+     *                                  returned false
+     *   'is_listing'                — page has children (skeleton
+     *                                  listing-page heuristic)
+     *   'empty_content'             — `content()` strips to empty
+     *
+     * Pure function, duck-typed against PageInterface — passes any
+     * object that exposes `route()`/`published()`/`routable()`/
+     * `content()`/`children()`. Test stand-ins use anonymous
+     * classes; no Grav dependency.
+     */
+    public static function classifyFederatability(
+        mixed $page,
+        string $pathFilter,
+    ): string {
+        if (!self::looksLikePage($page)) {
+            return 'not_under_prefix'; // shouldn't reach here normally
+        }
+        $prefix = self::normalisedPrefix($pathFilter);
+        $route  = self::bestEffortRoute($page) ?? '';
+        if (!self::routeUnderPrefix($route, $prefix)) {
+            return 'not_under_prefix';
+        }
+        /** @var object{published():mixed,routable():mixed} $page */
+        if (!$page->published() || !$page->routable()) {
+            return 'not_published_or_routable';
+        }
+        if (self::hasChildren($page)) {
+            return 'is_listing';
+        }
+        if (!self::hasNonEmptyContent($page)) {
+            return 'empty_content';
+        }
+        return 'ok';
+    }
+
+    public static function normalisedPrefix(string $pathFilter): string
+    {
+        $prefix = (string) preg_replace('#/\*\*?$#', '', $pathFilter);
+        return rtrim($prefix, '/');
+    }
+
+    public static function routeUnderPrefix(string $route, string $prefix): bool
+    {
+        if ($prefix === '') {
+            return true;
+        }
+        return $route === $prefix || str_starts_with($route, $prefix . '/');
+    }
+
+    private static function hasChildren(mixed $page): bool
+    {
+        if (!\is_object($page) || !method_exists($page, 'children')) {
+            return false;
+        }
+        try {
+            $children = $page->children();
+        } catch (\Throwable) {
+            return false;
+        }
+        if ($children === null) {
+            return false;
+        }
+        if (\is_object($children) && method_exists($children, 'count')) {
+            return $children->count() > 0;
+        }
+        if (is_iterable($children)) {
+            foreach ($children as $_) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static function hasNonEmptyContent(mixed $page): bool
+    {
+        if (!\is_object($page) || !method_exists($page, 'content')) {
+            return false;
+        }
+        try {
+            $html = (string) $page->content();
+        } catch (\Throwable) {
+            return false;
+        }
+        $text = (string) preg_replace('/<[^>]*>/', '', $html);
+        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        return trim($text) !== '';
+    }
+
     private static function stringifyOrNull(mixed $value): ?string
     {
         if ($value === null) {
