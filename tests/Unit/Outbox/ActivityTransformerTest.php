@@ -74,6 +74,126 @@ final class ActivityTransformerTest extends TestCase
         self::assertStringStartsWith($create['object']['id'] . '/', $create['id']);
     }
 
+    public function testHashtagsEmittedAsAsHashtagObjects(): void
+    {
+        $page = new PageRecord(
+            route:       '/blog/example',
+            url:         'https://blog.local/blog/example',
+            title:       'Example',
+            contentHtml: '<p>hi</p>',
+            published:   new DateTimeImmutable('2026-05-01T10:00:00Z'),
+            modified:    new DateTimeImmutable('2026-05-02T10:00:00Z'),
+            tags:        ['Beratung', 'Weiterbildung'],
+        );
+        $object = $this->transformerWithTagBase('https://blog.local/blog')
+            ->transformObject($page, true);
+
+        self::assertArrayHasKey('tag', $object);
+        self::assertCount(2, $object['tag']);
+        self::assertSame('Hashtag', $object['tag'][0]['type']);
+        self::assertSame('#Beratung', $object['tag'][0]['name']);
+        self::assertSame('https://blog.local/blog/tag:Beratung', $object['tag'][0]['href']);
+        self::assertSame('#Weiterbildung', $object['tag'][1]['name']);
+        self::assertSame('https://blog.local/blog/tag:Weiterbildung', $object['tag'][1]['href']);
+    }
+
+    public function testHashtagsPreservedOnNotes(): void
+    {
+        // Hashtag-discovery matters for short Notes too — don't gate
+        // on the Article/Note discriminator.
+        $page = new PageRecord(
+            route:       '/blog/short',
+            url:         'https://blog.local/blog/short',
+            title:       'Short',
+            contentHtml: '<p>hi</p>',
+            published:   new DateTimeImmutable('2026-05-01T10:00:00Z'),
+            modified:    new DateTimeImmutable('2026-05-02T10:00:00Z'),
+            tags:        ['Beratung'],
+        );
+        $object = $this->transformerWithTagBase('https://blog.local/blog')
+            ->transformObject($page, false); // Note, not Article
+
+        self::assertArrayHasKey('tag', $object);
+        self::assertSame('Note', $object['type']);
+    }
+
+    public function testHashtagWithoutTagBaseUrlOmitsHref(): void
+    {
+        // Default constructor (no tagBaseUrl) → `tag` array still
+        // emitted, but Hashtag entries carry only `type` and `name`.
+        // Mastodon still indexes by `name`; `href` is conventional
+        // but optional per AS 2.0.
+        $page = new PageRecord(
+            route:       '/blog/example',
+            url:         'https://blog.local/blog/example',
+            title:       'Example',
+            contentHtml: '<p>hi</p>',
+            published:   new DateTimeImmutable('2026-05-01T10:00:00Z'),
+            modified:    new DateTimeImmutable('2026-05-02T10:00:00Z'),
+            tags:        ['Beratung'],
+        );
+        $object = $this->transformer()->transformObject($page, true);
+
+        self::assertArrayHasKey('tag', $object);
+        self::assertSame('#Beratung', $object['tag'][0]['name']);
+        self::assertArrayNotHasKey('href', $object['tag'][0]);
+    }
+
+    public function testHashtagsAbsentWhenNoTags(): void
+    {
+        $object = $this->transformer()->transformObject($this->page(), true);
+        self::assertArrayNotHasKey('tag', $object);
+    }
+
+    public function testHashtagsSkipEntriesContainingWhitespace(): void
+    {
+        // Mastodon parses a hashtag up to the first whitespace, so
+        // emitting `#Work Life Balance` would index `Work` and leave
+        // the rest as literal text. Better to skip than mis-index.
+        $page = new PageRecord(
+            route:       '/blog/example',
+            url:         'https://blog.local/blog/example',
+            title:       'Example',
+            contentHtml: '<p>hi</p>',
+            published:   new DateTimeImmutable('2026-05-01T10:00:00Z'),
+            modified:    new DateTimeImmutable('2026-05-02T10:00:00Z'),
+            tags:        ['Beratung', 'Work Life Balance', 'Schichtdienst', ''],
+        );
+        $object = $this->transformerWithTagBase('https://blog.local/blog')
+            ->transformObject($page, true);
+
+        self::assertCount(2, $object['tag']);
+        $names = array_column($object['tag'], 'name');
+        self::assertSame(['#Beratung', '#Schichtdienst'], $names);
+    }
+
+    public function testHashtagHrefIsUrlEncoded(): void
+    {
+        $page = new PageRecord(
+            route:       '/blog/example',
+            url:         'https://blog.local/blog/example',
+            title:       'Example',
+            contentHtml: '<p>hi</p>',
+            published:   new DateTimeImmutable('2026-05-01T10:00:00Z'),
+            modified:    new DateTimeImmutable('2026-05-02T10:00:00Z'),
+            tags:        ['Über-Uns'],
+        );
+        $object = $this->transformerWithTagBase('https://blog.local/blog')
+            ->transformObject($page, true);
+
+        self::assertSame('#Über-Uns', $object['tag'][0]['name']);
+        self::assertSame('https://blog.local/blog/tag:%C3%9Cber-Uns', $object['tag'][0]['href']);
+    }
+
+    private function transformerWithTagBase(string $tagBaseUrl): ActivityTransformer
+    {
+        return new ActivityTransformer(
+            actorUrl:     'https://blog.local/activitypub/actor',
+            followersUrl: 'https://blog.local/activitypub/followers',
+            tagBaseUrl:   $tagBaseUrl,
+        );
+    }
+
     public function testCreateIdRespectsTrailingSlashOnObjectUrl(): void
     {
         // Some Grav route configurations append a trailing slash to

@@ -23,6 +23,7 @@ final class ActivityTransformer
     public function __construct(
         private readonly string $actorUrl,        // e.g. https://blog.local/activitypub/actor
         private readonly string $followersUrl,    // e.g. https://blog.local/activitypub/followers
+        private readonly string $tagBaseUrl = '', // e.g. https://blog.local/blog — base for Hashtag.href
     ) {
     }
 
@@ -77,6 +78,20 @@ final class ActivityTransformer
             $object['attachment'] = $attachments;
         }
 
+        // Hashtag-discovery is the primary amplification path on
+        // Mastodon for posts from accounts nobody is following yet —
+        // the per-instance #tag timeline picks them up. Without a
+        // `tag` array, the indexed value of the post is zero outside
+        // the existing follower set. AS 2.0 `Hashtag` objects carry
+        // a `name` (with leading #, MUST or Mastodon won't index it)
+        // and an `href` (canonical landing page on the source site,
+        // optional but conventional — Pleroma + GoToSocial render the
+        // link with it).
+        $hashtags = $this->buildHashtags($page);
+        if ($hashtags !== []) {
+            $object['tag'] = $hashtags;
+        }
+
         if ($asArticle) {
             // Mastodon treats `name` on a Note as malformed; only
             // Articles carry a headline.
@@ -84,6 +99,38 @@ final class ActivityTransformer
         }
 
         return $object;
+    }
+
+    /**
+     * Translate the page's taxonomy tags into AS 2.0 `Hashtag` objects.
+     * Tags that contain whitespace are skipped — Mastodon's parser
+     * splits at whitespace and would index the wrong substring,
+     * which is worse than not advertising the tag at all.
+     *
+     * @return list<array<string, string>>
+     */
+    private function buildHashtags(PageRecord $page): array
+    {
+        if ($page->tags === []) {
+            return [];
+        }
+        $out = [];
+        foreach ($page->tags as $tag) {
+            $name = trim($tag);
+            if ($name === '' || preg_match('/\s/', $name) === 1) {
+                continue;
+            }
+            $entry = [
+                'type' => 'Hashtag',
+                'name' => '#' . $name,
+            ];
+            if ($this->tagBaseUrl !== '') {
+                $entry['href'] = rtrim($this->tagBaseUrl, '/')
+                    . '/tag:' . rawurlencode($name);
+            }
+            $out[] = $entry;
+        }
+        return $out;
     }
 
     /**

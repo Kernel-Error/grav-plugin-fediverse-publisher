@@ -447,6 +447,7 @@ class FediversePublisherPlugin extends Plugin
         $transformer = new ActivityTransformer(
             actorUrl:     $hostBase . '/activitypub/actor',
             followersUrl: $hostBase . '/activitypub/followers',
+            tagBaseUrl:   $this->resolveTagBaseUrl($hostBase, $configArr),
         );
 
         return new OutboxBroadcaster(
@@ -457,6 +458,24 @@ class FediversePublisherPlugin extends Plugin
             noteThreshold:  $this->configInt($configArr, 'blog.note_threshold', 1000),
             log:            $this->resolveLogger(),
         );
+    }
+
+    /**
+     * Derive the base URL for Hashtag `href` attributes from the
+     * configured `blog.path_filter`. Default filter `/blog/**` →
+     * `<host>/blog`. Grav's stock blog-skeleton tag-listing URL is
+     * `<blog-root>/tag:<name>` so the `Hashtag.href` we emit there
+     * resolves to the canonical per-tag landing page on the source
+     * site. Operators with custom path filters get the prefix that
+     * matches their setup automatically.
+     *
+     * @param array<string, mixed> $configArr
+     */
+    private function resolveTagBaseUrl(string $hostBase, array $configArr): string
+    {
+        $filter = $this->configStr($configArr, 'blog.path_filter') ?: '/blog/**';
+        $prefix = (string) \preg_replace('#/\*\*?$#', '', $filter);
+        return rtrim($hostBase, '/') . '/' . trim($prefix, '/');
     }
 
     private function resolveLogger(): LoggerInterface
@@ -492,6 +511,7 @@ class FediversePublisherPlugin extends Plugin
         $transformer = new ActivityTransformer(
             actorUrl:     $actor->actorUrl(),
             followersUrl: $hostBase . '/activitypub/followers',
+            tagBaseUrl:   $this->resolveTagBaseUrl($hostBase, $configArr),
         );
         $pages = new GravPageSource(
             $this->grav['pages'],
@@ -556,6 +576,7 @@ class FediversePublisherPlugin extends Plugin
         $transformer = new ActivityTransformer(
             actorUrl:     $actor->actorUrl(),
             followersUrl: $hostBase . '/activitypub/followers',
+            tagBaseUrl:   $this->resolveTagBaseUrl($hostBase, $configArr),
         );
         $negotiator = new BlogPostNegotiator(
             transformer:   $transformer,

@@ -19,6 +19,14 @@ final class PageRecord
      *                                     sitting next to the markdown). Used
      *                                     as an `attachment` fallback when the
      *                                     body HTML has no `<img>` tag.
+     * @param list<string> $tags           Taxonomy tag names taken from Grav's
+     *                                     `taxonomy.tag` frontmatter, one per
+     *                                     entry, in the order the operator
+     *                                     listed them. Emitted as AS 2.0
+     *                                     `Hashtag` objects by the
+     *                                     transformer — drives Mastodon
+     *                                     hashtag-timeline discovery for
+     *                                     non-followers.
      */
     public function __construct(
         public readonly string $route,        // e.g. "/blog/first-post"
@@ -28,6 +36,7 @@ final class PageRecord
         public readonly DateTimeImmutable $published,
         public readonly DateTimeImmutable $modified,
         public readonly array $mediaImageUrls = [],
+        public readonly array $tags = [],
     ) {
     }
 

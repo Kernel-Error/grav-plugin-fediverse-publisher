@@ -171,7 +171,49 @@ final class GravPageSource implements PageSource
             published:      $this->toUtc((int) $page->date()),
             modified:       $this->toUtc((int) $page->modified()),
             mediaImageUrls: $this->collectMediaImages($page, $route),
+            tags:           $this->collectTags($page),
         );
+    }
+
+    /**
+     * Extract the `taxonomy.tag` list from the Grav page. Returns a
+     * list of plain string tag names; the transformer wraps them into
+     * AS 2.0 `Hashtag` objects. Without this, every Grav blog post's
+     * categories are dropped on the federation floor — and hashtag
+     * indexing is the single biggest amplifier on Mastodon for posts
+     * from accounts that nobody actively follows yet.
+     *
+     * @return list<string>
+     */
+    private function collectTags(PageInterface $page): array
+    {
+        if (!method_exists($page, 'taxonomy')) {
+            return [];
+        }
+        try {
+            $taxonomy = $page->taxonomy();
+        } catch (\Throwable) {
+            return [];
+        }
+        if (!\is_array($taxonomy)) {
+            return [];
+        }
+        $tags = $taxonomy['tag'] ?? null;
+        if (!\is_array($tags)) {
+            return [];
+        }
+        $out = [];
+        foreach ($tags as $tag) {
+            if (!\is_string($tag)) {
+                continue;
+            }
+            $clean = trim($tag);
+            if ($clean === '') {
+                continue;
+            }
+            $out[] = $clean;
+        }
+        return $out;
     }
 
     /**
