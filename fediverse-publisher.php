@@ -100,7 +100,18 @@ class FediversePublisherPlugin extends Plugin
             'onPluginsInitialized'   => [['runPreflight', 0]],
             'onPagesInitialized'     => [['onPagesInitialized', 0]],
             'onPageInitialized'      => [['onPageInitialized',  0]],
+            // Subscribe to BOTH save events. Grav 1.10+ Admin routes
+            // page saves through the Flex pipeline, which fires
+            // `onFlexAfterSave` not `onAdminAfterSave` — the v0.0.6
+            // production deploy on `beratung-rheinbach.de` quietly
+            // dropped every new post for this reason. Older / classic
+            // saves still fire `onAdminAfterSave`. Subscribing to
+            // both is the robust answer; the handler dedups via the
+            // push-queue UNIQUE constraint on (activity_id,
+            // recipient_inbox), so double-firing for the same save
+            // is harmless.
             'onAdminAfterSave'       => [['onPageSaved', 0]],
+            'onFlexAfterSave'        => [['onPageSaved', 0]],
             'onSchedulerInitialized' => [['onSchedulerInitialized', 0]],
         ];
     }
@@ -140,23 +151,43 @@ class FediversePublisherPlugin extends Plugin
     /**
      * Fired by Grav admin when a page is saved. Broadcasts the
      * Create activity to every active follower if the page falls
-     * under the blog filter and is published.
+     * under the blog filter and is published. Subscribed to both
+     * `onAdminAfterSave` (classic Page saves) and `onFlexAfterSave`
+     * (Flex Page saves under Admin 1.10+, which is the default
+     * on Grav 1.7.x with the bundled flex-objects plugin).
      */
     public function onPageSaved(\RocketTheme\Toolbox\Event\Event $event): void
     {
+        // Unconditional diagnostic — answers the v0.0.6 production
+        // mystery "did the handler fire at all?" in one log line.
+        // Cheap to keep on for the lifetime of the plugin: one INFO
+        // entry per admin save, with the routing data we need for
+        // future event-pipeline changes.
+        $object = $event['object'] ?? null;
+        $log = $this->grav['log'] ?? null;
+        if ($log instanceof LoggerInterface) {
+            $log->info('fediverse-publisher: page-save event received', [
+                'object_class' => \is_object($object) ? \get_class($object) : \gettype($object),
+                'object_route' => $this->bestEffortRoute($object),
+                'event_keys'   => array_keys(iterator_to_array($event)),
+            ]);
+        }
+
         if ($this->preflight === null || !$this->preflight->isHealthy()) {
             return;
         }
-        $object = $event['object'] ?? null;
-        if ($object === null || !\method_exists($object, 'route')) {
+        if (!$this->looksLikePage($object)) {
             return;
         }
-        // Only act on pages, not on user/config/site saves that share
-        // this hook.
-        if (!\method_exists($object, 'published') || !\method_exists($object, 'routable')) {
-            return;
-        }
+        // `$object` is duck-typed via looksLikePage(); narrow for
+        // PHPStan by asserting it has the methods we'll call.
+        /** @var object{route():mixed,published():mixed,routable():mixed} $object */
         if (!$object->published() || !$object->routable()) {
+            return;
+        }
+
+        $route = (string) $object->route();
+        if ($route === '') {
             return;
         }
 
@@ -167,12 +198,62 @@ class FediversePublisherPlugin extends Plugin
             $this->configStr($configArr, 'blog.path_filter') ?: '/blog/**',
             $hostBase,
         );
-        $record = $pages->findByRoute((string) $object->route());
+        $record = $pages->findByRoute($route);
         if ($record === null) {
             return;     // not under our blog filter
         }
 
         $this->buildBroadcaster()->broadcast($record);
+    }
+
+    /**
+     * Best-effort route extraction for the diagnostic log only. The
+     * real broadcast path uses `$object->route()` directly, gated
+     * by `looksLikePage()`.
+     */
+    private function bestEffortRoute(mixed $object): ?string
+    {
+        if (!\is_object($object)) {
+            return null;
+        }
+        if (\method_exists($object, 'route')) {
+            try {
+                $r = $object->route();
+                return \is_string($r) ? $r : null;
+            } catch (\Throwable) {
+                return null;
+            }
+        }
+        if (\method_exists($object, 'getRoute')) {
+            try {
+                $r = $object->getRoute();
+                return \is_string($r) ? $r : null;
+            } catch (\Throwable) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Duck-typed page check: classic `Grav\Common\Page\Page` and
+     * `Grav\Common\Flex\Types\Pages\PageObject` both implement the
+     * same surface (`route()`, `published()`, `routable()`) but
+     * don't share a base class we can `instanceof` cheaply here.
+     * `onAdminAfterSave` also fires for User/Config saves where
+     * none of these methods exist — that's the case we bail on.
+     */
+    private function looksLikePage(mixed $object): bool
+    {
+        if (!\is_object($object)) {
+            return false;
+        }
+        foreach (['route', 'published', 'routable'] as $m) {
+            if (!\method_exists($object, $m)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
