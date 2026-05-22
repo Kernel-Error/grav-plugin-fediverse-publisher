@@ -113,6 +113,65 @@ final class OutboundQueueTest extends TestCase
         self::assertSame(410, (int) $this->pdo->query('SELECT last_http_status FROM push_queue WHERE id = ' . $ids[0])->fetchColumn());
     }
 
+    public function testPurgeDeadRemovesAllDeadRowsByDefault(): void
+    {
+        $q = $this->seedQueue(3);
+        $ids = $q->claimBatch('w-1', 3);
+        $q->markDead($ids[0], 410, 'gone');
+        $q->markDead($ids[1], 401, 'permanent http 401');
+        $q->markDone($ids[2]);
+
+        $removed = $q->purgeDead();
+        self::assertSame(2, $removed);
+
+        // Remaining row is the done one.
+        $remaining = $this->pdo->query('SELECT status FROM push_queue')->fetchAll(PDO::FETCH_COLUMN);
+        self::assertSame(['done'], $remaining);
+    }
+
+    public function testPurgeDeadIsIdempotent(): void
+    {
+        $q = $this->seedQueue(1);
+        $ids = $q->claimBatch('w-1', 1);
+        $q->markDead($ids[0], 410, 'gone');
+
+        self::assertSame(1, $q->purgeDead());
+        self::assertSame(0, $q->purgeDead()); // second run no-ops
+        self::assertSame(0, $this->countRows());
+    }
+
+    public function testPurgeDeadPreservesPendingProcessingDone(): void
+    {
+        // 3 rows: one pending, one processing, one done — none of
+        // them should be touched by purgeDead().
+        $q = $this->seedQueue(3);
+        $claimed = $q->claimBatch('w-1', 2);
+        $q->markDone($claimed[0]);
+        // claimed[1] stays in `processing`; row #3 stays `pending`
+
+        self::assertSame(0, $q->purgeDead());
+        self::assertSame(3, $this->countRows());
+    }
+
+    public function testPurgeDeadAgeFilterKeepsRecentDeadRows(): void
+    {
+        $q = $this->seedQueue(2);
+        $ids = $q->claimBatch('w-1', 2);
+        $q->markDead($ids[0], 410, 'old gone');
+        $q->markDead($ids[1], 410, 'fresh gone');
+
+        // Backdate the first dead row 30 days into the past.
+        $this->pdo->exec(
+            'UPDATE push_queue SET updated_at = updated_at - ' . (30 * 86400)
+            . ' WHERE id = ' . $ids[0]
+        );
+
+        // Purge anything older than 7 days. Only the backdated row qualifies.
+        $removed = $q->purgeDead(7 * 86400);
+        self::assertSame(1, $removed);
+        self::assertSame(1, $this->countRows());
+    }
+
     public function testRescheduleBumpsAttemptCountAndDelay(): void
     {
         $q = $this->seedQueue(1);

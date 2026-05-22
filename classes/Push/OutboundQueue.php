@@ -192,6 +192,38 @@ final class OutboundQueue
         $stmt->execute([':id' => $id, ':s' => $status, ':r' => $reason, ':ts' => time()]);
     }
 
+    /**
+     * Operator housekeeping. Delete every push_queue row that's
+     * marked `dead` and (optionally) older than `$olderThanSeconds`.
+     * Pass `0` to delete all `dead` rows regardless of age.
+     *
+     * Dead rows are terminal — the retry loop has given up on them
+     * (404/410, permanent 4xx, or attempt cap exhausted), so the
+     * delete is safe. The UNIQUE constraint on
+     * (activity_id, recipient_inbox) means a future legitimate
+     * re-broadcast of the same content reuses the dead row's slot
+     * if the operator does NOT purge — keeping that history is
+     * occasionally useful, but unbounded growth is a paper-cut.
+     *
+     * Returns the number of rows removed.
+     */
+    public function purgeDead(int $olderThanSeconds = 0): int
+    {
+        if ($olderThanSeconds <= 0) {
+            $stmt = $this->pdo->prepare(
+                "DELETE FROM push_queue WHERE status = 'dead'"
+            );
+            $stmt->execute();
+            return $stmt->rowCount();
+        }
+        $stmt = $this->pdo->prepare(
+            "DELETE FROM push_queue
+              WHERE status = 'dead' AND updated_at < :cutoff"
+        );
+        $stmt->execute([':cutoff' => time() - $olderThanSeconds]);
+        return $stmt->rowCount();
+    }
+
     public function reschedule(int $id, int $newAttemptCount, int $delaySeconds, int $lastStatus, string $reason): void
     {
         $stmt = $this->pdo->prepare(
