@@ -244,6 +244,29 @@ release). See that directory's `README.md` for the runbook.
   the relevant caches) rather than via yaml. If you must use yaml:
   `bin/grav clearcache --all` followed by an FPM restart (not
   reload).
+- **Multi-site setups: web endpoints respond 200 but
+  `flush-queue` says "plugin not enabled"** — Grav supports
+  per-host config overrides under `user/<host>/config/plugins/`.
+  When you set the plugin's `Canonical host URL` in the Admin UI
+  on a multi-site install, the Admin writes to the host-specific
+  override file because it knows the host of the request. The
+  Grav CLI doesn't have a host context though, so it reads only
+  the global `user/config/plugins/fediverse-publisher.yaml` —
+  which still has the default `enabled: false` and an empty
+  `canonical_host`. Result: actor / webfinger / outbox all serve
+  correctly via the web path, but the scheduler tick and
+  `bin/plugin fediverse-publisher flush-queue` silently no-op
+  ("plugin not enabled"), so no Accept-pushes ever fire and no
+  Create activity ever reaches the queue. Two workarounds:
+  (a) keep the plugin config identical in BOTH locations —
+  either by saving once via Admin and then copying the
+  host-specific file on top of the global one, or by editing
+  the global yaml directly; or (b) bootstrap Grav's site
+  context manually before invoking the CLI (Grav scheduler can
+  be told the host via `--env=<host>` on some setups). The
+  plugin doesn't auto-detect multi-site because it has no way
+  of knowing what your host topology looks like; flagging it in
+  the operator's runbook is the practical answer for now.
 
 ## License
 
