@@ -6,6 +6,41 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed (v0.0.8 — hotfix: diagnostic crashes every Admin save)
+
+v0.0.7's broadcast pipeline change (subscribing to `onFlexAfterSave`
+under Grav 1.10+ Admin) worked structurally — the hook fired,
+the handler reached. But the new diagnostic line at handler entry
+called `iterator_to_array($event)` on a
+`RocketTheme\Toolbox\Event\Event`, and that class implements
+`ArrayAccess` but NOT `Traversable`. PHP 8.x raises a `TypeError`,
+which surfaced as HTTP 500 on every Admin save in production. The
+site owner saw a 623 KB error page and couldn't save anything
+while the plugin was enabled.
+
+- **Drop the iterator_to_array call.** Diagnostic still logs
+  `object_class`, `object_route` (best-effort), and the
+  `event['type']` key (which Flex saves carry as `'flex'`).
+  Everything else came from the iteration that fataled.
+- **Structural fix that closes the test gap.** Extracted the
+  diagnostic-building logic into a new `Outbox\PageSaveDiagnostics`
+  class — pure static functions, no Grav dependency, unit-testable
+  without bootstrapping the plugin. The same class hosts
+  `looksLikePage()` and `bestEffortRoute()` so the entire
+  handler-entry duck-typing surface is now coverable by unit
+  tests. 13 new tests fuzz both functions against the object
+  shapes the handler actually sees in the wild (classic Page,
+  Flex PageObject, User, scalars, null, getRoute-only fallback,
+  exception-throwing route()). The operator's observation in the
+  v0.0.7 feedback was load-bearing: a subscription test isn't a
+  handler test, and v0.0.7 only had the former.
+
+The broadcast pipeline itself is structurally sound — v0.0.7's
+`broadcast:post` CLI (manual recovery) delivered the v0.0.6-stuck
+post to both followers with HTTP 202 from each peer. The crash
+was strictly in the diagnostic logging, upstream of any real
+work.
+
 ### Fixed (v0.0.7 — broadcast pipeline + 4.5-compat + hashtags)
 
 v0.0.6 production deploy on beratung-rheinbach.de got the follow

@@ -25,6 +25,7 @@ use Grav\Plugin\FediversePublisher\Outbox\ActivityTransformer;
 use Grav\Plugin\FediversePublisher\Outbox\GravPageSource;
 use Grav\Plugin\FediversePublisher\Outbox\OutboxBroadcaster;
 use Grav\Plugin\FediversePublisher\Outbox\PageRecord;
+use Grav\Plugin\FediversePublisher\Outbox\PageSaveDiagnostics;
 use Grav\Plugin\FediversePublisher\Config\HostBaseResolver;
 use Grav\Plugin\FediversePublisher\Preflight\PreflightCheck;
 use Grav\Plugin\FediversePublisher\Push\Dispatcher;
@@ -62,7 +63,7 @@ class FediversePublisherPlugin extends Plugin
      * Plugin version reported in NodeInfo `software.version`. Bumped
      * in lockstep with the version field in blueprints.yaml.
      */
-    private const SOFTWARE_VERSION = '0.0.7';
+    private const SOFTWARE_VERSION = '0.0.8';
     private const SOFTWARE_NAME    = 'grav-fediverse-publisher';
     private const HOST_PLATFORM    = 'grav';
 
@@ -163,20 +164,27 @@ class FediversePublisherPlugin extends Plugin
         // Cheap to keep on for the lifetime of the plugin: one INFO
         // entry per admin save, with the routing data we need for
         // future event-pipeline changes.
+        //
+        // WARNING: do NOT iterate `$event` here. RocketTheme's Event
+        // class implements ArrayAccess but NOT Traversable, so
+        // anything like `iterator_to_array($event)` or `foreach
+        // ($event as ...)` fatals under PHP 8.x with a TypeError —
+        // which crashed every Admin save in v0.0.7 before this fix.
+        // The diagnostic-building logic is now in PageSaveDiagnostics
+        // (pure, unit-tested) so this entry-point stays trivial.
         $object = $event['object'] ?? null;
         $log = $this->grav['log'] ?? null;
         if ($log instanceof LoggerInterface) {
-            $log->info('fediverse-publisher: page-save event received', [
-                'object_class' => \is_object($object) ? \get_class($object) : \gettype($object),
-                'object_route' => $this->bestEffortRoute($object),
-                'event_keys'   => array_keys(iterator_to_array($event)),
-            ]);
+            $log->info(
+                'fediverse-publisher: page-save event received',
+                PageSaveDiagnostics::buildContext($object, $event['type'] ?? null),
+            );
         }
 
         if ($this->preflight === null || !$this->preflight->isHealthy()) {
             return;
         }
-        if (!$this->looksLikePage($object)) {
+        if (!PageSaveDiagnostics::looksLikePage($object)) {
             return;
         }
         // `$object` is duck-typed via looksLikePage(); narrow for
@@ -204,56 +212,6 @@ class FediversePublisherPlugin extends Plugin
         }
 
         $this->buildBroadcaster()->broadcast($record);
-    }
-
-    /**
-     * Best-effort route extraction for the diagnostic log only. The
-     * real broadcast path uses `$object->route()` directly, gated
-     * by `looksLikePage()`.
-     */
-    private function bestEffortRoute(mixed $object): ?string
-    {
-        if (!\is_object($object)) {
-            return null;
-        }
-        if (\method_exists($object, 'route')) {
-            try {
-                $r = $object->route();
-                return \is_string($r) ? $r : null;
-            } catch (\Throwable) {
-                return null;
-            }
-        }
-        if (\method_exists($object, 'getRoute')) {
-            try {
-                $r = $object->getRoute();
-                return \is_string($r) ? $r : null;
-            } catch (\Throwable) {
-                return null;
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Duck-typed page check: classic `Grav\Common\Page\Page` and
-     * `Grav\Common\Flex\Types\Pages\PageObject` both implement the
-     * same surface (`route()`, `published()`, `routable()`) but
-     * don't share a base class we can `instanceof` cheaply here.
-     * `onAdminAfterSave` also fires for User/Config saves where
-     * none of these methods exist — that's the case we bail on.
-     */
-    private function looksLikePage(mixed $object): bool
-    {
-        if (!\is_object($object)) {
-            return false;
-        }
-        foreach (['route', 'published', 'routable'] as $m) {
-            if (!\method_exists($object, $m)) {
-                return false;
-            }
-        }
-        return true;
     }
 
     /**
