@@ -4,6 +4,134 @@ All notable changes to this project are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.0] — 2026-05-22
+
+First tagged release. Broadcast-only MVP: a Grav blog auto-federates
+new posts to follower instances on the Fediverse via ActivityPub.
+
+The path from v0.0.1 to v0.1.0 spans eight pre-release iterations
+across two days of production-driven debugging on a single real
+site (`www.beratung-rheinbach.de`, a counselling practice's blog,
+Grav 1.7.52 + Admin 1.10.51 on FreeBSD). Every iteration closed
+a specific class of bug that only showed up in real-world
+deployment — none of which would have surfaced without an
+operator on the receiving end of a live federation handshake.
+Recap, ordered by the lesson each release contributed:
+
+- **v0.0.1** caused HTTP 500 site-wide on Grav 1.7 the moment
+  `composer install` ran. Root cause: psr/log v1↔v3 conflict
+  between the plugin's vendor and Grav 1.7's bundled copy. Lesson:
+  the Grav plugin loader calls `autoload()` on every plugin
+  including disabled ones, so a broken vendor takes the whole site
+  with it.
+- **v0.0.2** pinned psr/log to `^1.1` and wrapped autoload in a
+  defensive try/catch so any future autoload failure degrades to
+  a no-op + error_log entry instead of bringing the site down.
+- **v0.0.3** fixed double-quoted SQL string literals (SQLite
+  parses double-quoted tokens as identifiers under PHP 8.3, not
+  string literals — a footgun specific to the host PHP version),
+  wired up the actor JSON-LD's promised `/followers` and
+  `/following` endpoints, added an outbox listing-page filter,
+  enriched Article objects with `summary` and `attachment`.
+- **v0.0.4** added router-wiring source-grep guards, switched
+  listing-detection from frontmatter heuristic to structural
+  (children-count), introduced `attachment` from `$page->media()`
+  for posts that don't inline-embed their image. Most importantly:
+  on a hunch that the next round would have a peer-side rejection
+  we couldn't otherwise diagnose, added unconditional logging of
+  the response body on every non-2xx push. That decision was
+  load-bearing for the next four releases — every subsequent
+  Fediverse-side rejection surfaced its exact reason in one log
+  line instead of taking a guess-and-deploy cycle.
+- **v0.0.5** the v0.0.4 diagnostics paid off immediately:
+  Mastodon refused our outbound `Accept` with 401 saying
+  "Requests to private network addresses are disallowed (tried
+  to query Mastodon::PrivateNetworkAddressError on
+  http://localhost/activitypub/actor#main-key)". The CLI scheduler
+  context had no usable host so the keyId fell back to localhost.
+  v0.0.5 made `federation.canonical_host` a mandatory config
+  field, fixed a `$clock` named-parameter drift in the
+  FlushQueueCommand, and re-registered the plugin's Composer
+  autoloader with `prepend=false` to stop the plugin's vendor
+  from hijacking shared classes from Grav's host vendor.
+- **v0.0.6** clamped AS 2.0 `updated` to never predate
+  `published` — `$page->date()` from the frontmatter sometimes
+  sits later than `$page->modified()` mtime, and strict peers
+  (Mastodon, Pleroma, GoToSocial) silently drop activities with
+  that field inversion.
+- **v0.0.7** subscribed to `onFlexAfterSave` in addition to
+  `onAdminAfterSave` — Grav-Admin 1.10's bundled `flex-objects`
+  plugin routes page saves through its own event pipeline, which
+  the classic event never fires for. Without this, every new
+  post saved through the Admin was being silently dropped.
+  Same release also added Hashtag federation from
+  `taxonomy.tag`, fragment-less activity IDs to fix
+  Mastodon-4.5's double-count bug, and recovery CLIs
+  `broadcast:post` and `push:purge-dead`.
+- **v0.0.8** hotfixed an `iterator_to_array($event)` fatal in
+  the new diagnostic line I'd added at handler entry — RocketTheme
+  Event implements ArrayAccess but NOT Traversable. Extracted
+  the diagnostic-building logic into the testable
+  `PageSaveDiagnostics` helper class with 13 new unit tests
+  fuzzing every plausible object shape, so the
+  "subscription test ≠ handler test" structural gap closes.
+- **v0.0.9** unblocked the still-failing broadcast pipeline:
+  `findByRoute()` returned null at save-event time because Grav
+  hadn't rebuilt its pages collection yet, even though the
+  outbox endpoint saw the same page fine a moment later. Fix
+  was to source the PageInterface directly from the event
+  payload via the new `findByPage()` method instead of
+  re-querying the stale collection. Plus a per-bail INFO log
+  line for every silent return, dedup-aware broadcaster log
+  output, and a Codex-flagged defensive try/catch around the
+  buildRecord call so a fresh Flex object that throws on a
+  metadata accessor degrades to a warning instead of an
+  Admin HTTP 500.
+
+End-to-end verified for v0.1.0:
+
+- Inbound Follow from `mastodon.social` and `bonn.social` →
+  Verifier (9-step pipeline) → enqueue Accept → CLI flush →
+  HTTP 202 from each peer → follower row flips to `accepted`.
+- Profile rendering: bio, avatar, header all federate cleanly.
+- Outbox crawl on first follow: peers see five real blog posts
+  in reverse-chronological order, no listing-page leakage.
+- Auto-broadcast on new posts: Admin save → push_queue row in
+  under a second → scheduler tick → HTTP 202 from both peer
+  instances within ~15 seconds, post visible in follower's
+  Mastodon home timeline.
+- Re-save dedup: UNIQUE constraint on
+  `(activity_id, recipient_inbox)` keeps the second push from
+  fanning out a duplicate. Visible in the log as
+  `broadcast deduped — activity already queued for all followers`.
+- Recovery: `bin/plugin fediverse-publisher broadcast:post
+  <route>` re-enqueues any post that didn't reach the queue.
+  Used three times on production across the iteration; all
+  successful.
+
+What's NOT in v0.1.0 (roadmap items):
+
+- `Update` activity on re-saves instead of fresh `Create`.
+  Currently Mastodon dedupes by `object.id` so the user-visible
+  result is correct, but Pleroma / Misskey / Akkoma may handle
+  this differently — the spec-elegant fix is `Update`.
+- Delete federation. When a post is deleted in Grav Admin, the
+  follower-side Status remains in cache until the receiving
+  instance hits its first re-fetch. We don't emit a `Delete`
+  activity proactively.
+- Authorized fetch (`AUTHORIZED_FETCH=true` Mastodon instances)
+  is partially supported via a heuristic for the inbox URL; the
+  spec-complete signed-GET path is deferred.
+- `push:purge-old-activities` for long-running deployments —
+  push_queue grows monotonically across saves, currently no
+  age-out for `done` rows.
+- README OG-tags or theme-side rendering improvements — those
+  are theme work, not plugin work, and stay out of scope by
+  design.
+
+Suite at v0.1.0: 273 tests / 590 assertions, all green. PHPStan
+clean. PHP-CS-Fixer clean. CI across PHP 8.1 / 8.2 / 8.3.
+
 ## [Unreleased]
 
 ### Fixed (v0.0.9 — broadcast pipeline actually runs on fresh saves)

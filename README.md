@@ -4,9 +4,27 @@ Publish a [Grav](https://getgrav.org/) blog to the **Fediverse**
 (Mastodon, Pleroma, GoToSocial, Lemmy, Friendica, …) via the
 [ActivityPub](https://www.w3.org/TR/activitypub/) protocol.
 
-> **Status:** v0.0.x — first end-to-end pre-release. Federation
-> works against GoToSocial; full Mastodon/Pleroma compatibility
-> matrix testing is the next milestone before a tagged v0.1.
+> **Status — v0.1.0 (early access):** First tagged release. This is a
+> solo-maintainer side project. It has been running on **one** real
+> production site (a counselling practice's blog) since 2026-05-21,
+> with two real cross-instance followers on `mastodon.social` (4.6
+> nightly) and `bonn.social` (Mastodon 4.5.9). Outbound federation
+> has also been verified against GoToSocial 0.21 in the local dev
+> stack. Mastodon's home-timeline, profile rendering, hashtags via
+> Grav `taxonomy.tag`, summary + attachment, follow handshake and
+> Accept-push, automatic broadcast on new posts — all working
+> end-to-end as of this tag.
+>
+> What this means for you: **bug reports, feedback, and testing on
+> other Grav setups are very welcome.** The plugin reached v0.1.0
+> after eight production-deploy iterations across two days, all of
+> them on the same single site. Quirks that didn't show up on that
+> setup almost certainly exist on others. Open issues at
+> [the GitHub tracker](https://github.com/Kernel-Error/grav-plugin-fediverse-publisher/issues)
+> if you find anything, or just say hi.
+>
+> Maintenance commitment is honest-effort solo: ~2-8 h/month nominal,
+> spikier when something interesting comes in. No SLA promised.
 
 ---
 
@@ -67,7 +85,9 @@ Publish a [Grav](https://getgrav.org/) blog to the **Fediverse**
 
 ## Installation
 
-GPM submission is planned for the v0.1 tag. For now:
+The plugin is not yet listed in Grav's official GPM index — that
+submission is planned for a later release once it's had more
+deployments. For now, install via git:
 
 ```bash
 cd user/plugins
@@ -157,16 +177,26 @@ canonical config file is
 | `blog.path_filter` | `/blog/**` | Which Grav pages become outbox entries (glob). |
 | `blog.note_threshold` | `1000` | Characters above which a post is an `Article`, below it's a `Note`. |
 | **`federation.canonical_host`** | (empty) | **Required.** Public https origin URL of the site, no trailing slash, no path, no port — e.g. `https://www.example.com`. Used in actor URL, keyId, inbox/outbox URLs. Must be set explicitly: Grav's CLI scheduler context can't derive this from the request URI, and Fediverse peers reject keyIds that resolve to `localhost`. The plugin's preflight refuses to enable the plugin until this is set to a publishable value. |
-| `federation.public_only` | `true` | Only push pages with public visibility. |
 | `federation.dev_allow_cidrs` | `[]` | **Dev only.** CIDR allow-list overriding the SSRF reserved-IP block. Keep empty in production. |
 
 ## Operator commands
 
 ```bash
-# Drain the push queue once, synchronously. Useful for dev / smoke.
+# Drain the push queue once, synchronously. Useful for dev / smoke,
+# and as a manual nudge if the scheduler tick hasn't fired yet.
 bin/plugin fediverse-publisher flush-queue
 
-# Clear all Grav caches (mind the syntax — there's no dash):
+# Re-broadcast an existing blog post — for catch-up after a deploy,
+# or any case where a save event didn't reach the queue. Idempotent:
+# safe to run twice for the same route.
+bin/plugin fediverse-publisher broadcast:post /blog/<slug>
+
+# Drop terminal `dead` rows from the queue. Optionally only those
+# older than N days:
+bin/plugin fediverse-publisher push:purge-dead
+bin/plugin fediverse-publisher push:purge-dead --older-than=30
+
+# Clear all Grav caches (note: no dash inside the command name):
 bin/grav clearcache --all
 ```
 
