@@ -12,8 +12,11 @@ use Psr\Log\AbstractLogger;
  * call, with `lastDebug` / `lastInfo` / `lastWarning` shortcuts for
  * the common single-call assertion path.
  *
- * Signature matches the psr/log v1.1.x untyped contract (which the
- * plugin pins to avoid colliding with Grav 1.7's bundled v1).
+ * The `log()` signature stays compatible across psr/log v1/v2/v3:
+ * the `: void` return is a covariant narrowing over v1's untyped
+ * return, and the untyped `$message` is a contravariant widening over
+ * v2/v3's `string|\Stringable`. Both are allowed overrides, so this
+ * double works whichever psr/log major composer resolves.
  */
 final class TestLogger extends AbstractLogger
 {

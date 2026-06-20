@@ -4,6 +4,32 @@ All notable changes to this project are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] — 2026-06-20
+
+Dependency-constraint fix, no functional change. Relaxes the `psr/log`
+requirement from a hard `^1.1` to `^1.1 || ^2.0 || ^3.0`.
+
+The `^1.1` pin dates back to v0.0.2, where a transitive psr/log v3 in
+the plugin's own `vendor/` collided with Grav 1.7's bundled v1 and took
+the whole site to HTTP 500. Pinning to v1 fixed that, but it had a
+side effect that only surfaced now: Grav core 1.7.53 ships a newer
+psr/log, and the GPM self-upgrade preflight refuses to move the core
+forward while any installed plugin still demands `^1.1`. Production
+on www.beratung-rheinbach.de was therefore stuck on 1.7.52 — not by a
+bug, just by our constraint.
+
+Widening the range is safe here because the plugin only *consumes* a
+PSR-3 logger (typed `LoggerInterface` parameters); nothing implements
+the interface or extends `AbstractLogger` in production code, so the
+`: void` return types that v2/v3 added cannot break anything. The
+v0.0.5 `autoload(prepend=false)` mitigation still guarantees the host's
+psr/log wins for shared classes regardless of which major lands in the
+plugin's vendor. Once installed, production core can move to 1.7.53+.
+
+### Changed
+- `composer.json`: `psr/log` constraint widened to
+  `^1.1 || ^2.0 || ^3.0` so GPM stops blocking the Grav core upgrade.
+
 ## [0.1.0] — 2026-05-22
 
 First tagged release. Broadcast-only MVP: a Grav blog auto-federates
