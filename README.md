@@ -4,11 +4,13 @@ Publish a [Grav](https://getgrav.org/) blog to the **Fediverse**
 (Mastodon, Pleroma, GoToSocial, Lemmy, Friendica, …) via the
 [ActivityPub](https://www.w3.org/TR/activitypub/) protocol.
 
-> **Status — v0.1.0 (early access):** First tagged release. This is a
-> solo-maintainer side project. It has been running on **one** real
-> production site (a counselling practice's blog) since 2026-05-21,
-> with two real cross-instance followers on `mastodon.social` (4.6
-> nightly) and `bonn.social` (Mastodon 4.5.9). Outbound federation
+> **Status — v0.1.1 (early access):** Released as a dependency-only
+> patch on top of the first tagged release (v0.1.0); see the
+> CHANGELOG. This is a solo-maintainer side project. It has been
+> running on **one** real production site (a counselling practice's
+> blog) since 2026-05-21, with a small handful of real cross-instance
+> followers (`mastodon.social` 4.6 nightly, `bonn.social` 4.5.9,
+> `social.tchncs.de`). Outbound federation
 > has also been verified against GoToSocial 0.21 in the local dev
 > stack. Mastodon's home-timeline, profile rendering, hashtags via
 > Grav `taxonomy.tag`, summary + attachment, follow handshake and
